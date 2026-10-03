@@ -1,0 +1,20 @@
+@inherits LayoutComponentBase
+
+<HeadContent>
+    <link rel="stylesheet" href="/_content/QuartzSupervisor/dashboard.css" />
+</HeadContent>
+<div class="app-shell">
+    <header class="app-header">
+        <a class="brand" href="/quartz-supervisor">
+            <span class="brand-name">Quartz</span><span class="brand-divider" aria-hidden="true"></span><span class="brand-product">Supervisor</span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary navigation">
+            <NavLink href="/quartz-supervisor" Match="NavLinkMatch.All">Overview</NavLink>
+            <NavLink href="/quartz-supervisor/jobs">Jobs</NavLink>
+            <NavLink href="/quartz-supervisor/triggers">Triggers</NavLink>
+            <NavLink href="/quartz-supervisor/timeline">Timeline</NavLink>
+        </nav>
+        <span class="header-context">Quartz.NET</span>
+    </header>
+    <div class="content">@Body</div>
+</div>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <PackageId>QuartzSupervisor</PackageId>
+    <AssemblyName>QuartzSupervisor</AssemblyName>
+    <Description>Minimal Quartz.NET dashboard for ASP.NET Core hosts.</Description>
+    <PackageTags>quartz;quartznet;dashboard;monitoring;aspnetcore</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../QuartzSupervisor.Integration/QuartzSupervisor.Integration.csproj" />
+  </ItemGroup>
+</Project>

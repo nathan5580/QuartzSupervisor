@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/Libraries/">
+    <Project Path="Libraries/QuartzSupervisor.Dashboard/QuartzSupervisor.Dashboard.csproj" />
+    <Project Path="Libraries/QuartzSupervisor.Integration/QuartzSupervisor.Integration.csproj" />
+  </Folder>
+  <Folder Name="/Samples/">
+    <Project Path="Samples/Embedded/Embedded.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/QuartzSupervisor.Tests/QuartzSupervisor.Tests.csproj" />
+  </Folder>
+</Solution>

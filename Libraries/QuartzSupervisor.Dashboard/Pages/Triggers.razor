@@ -1,0 +1,85 @@
+@page "/quartz-supervisor/triggers"
+<PageTitle>Triggers · Quartz Supervisor</PageTitle>
+
+<main class="page">
+    <header class="page-heading">
+        <div>
+            <h1>Triggers</h1>
+            <p class="page-description">Inspect trigger state and the next and previous fire times.</p>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <p class="state-panel" role="status"><span class="loading-dot"></span>Loading triggers…</p>
+    }
+    else if (_error is not null)
+    {
+        <p class="notice" role="alert">@_error</p>
+    }
+    else if (_schedulers.Count == 0)
+    {
+        <p class="notice">No schedulers are registered with this host.</p>
+    }
+    else
+    {
+        <section class="filter-panel" aria-label="Trigger filters">
+            <div class="filter-field">
+                <label for="triggers-scheduler">Scheduler</label>
+                <select id="triggers-scheduler" class="field" @bind="_selectedName" @bind:after="LoadTriggersAsync">
+                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@scheduler.Name</option> }
+                </select>
+            </div>
+            <form class="search-form" @onsubmit="SearchTriggersAsync" @onsubmit:preventDefault="true">
+                <label for="trigger-search">Search trigger names</label>
+                <div class="search-row">
+                    <input id="trigger-search" class="field" type="search" @bind="_filter" @bind:event="oninput" placeholder="Trigger name" />
+                    <button class="button-primary" type="submit">Search</button>
+                </div>
+            </form>
+        </section>
+        <section class="table-panel" aria-labelledby="triggers-table-heading">
+            <div class="panel-header table-panel-header">
+                <div>
+                    <h2 id="triggers-table-heading">Registered triggers</h2>
+                    <p class="panel-description">Schedules on @_selectedName</p>
+                </div>
+            </div>
+            @if (_page.Items.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>@(!string.IsNullOrWhiteSpace(_filter) ? "No matching triggers" : _page.Skip > 0 ? "No triggers on this page" : "No triggers registered")</h3>
+                    <p>@(!string.IsNullOrWhiteSpace(_filter) ? "Try another trigger name." : "Triggers registered with this scheduler will appear here.")</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-scroll"><table>
+                    <caption class="sr-only">Triggers for @_selectedName</caption>
+                    <thead><tr><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th><th scope="col">Previous fire (UTC)</th></tr></thead>
+                    <tbody>@foreach (var trigger in _page.Items)
+                    {
+                        <tr>
+                            <th scope="row"><span class="entity-name">@trigger.Name</span></th>
+                            <td><span class="group-tag">@trigger.Group</span></td>
+                            <td><span class="entity-name">@trigger.JobName</span><span class="sub-cell">(@trigger.JobGroup)</span></td>
+                            <td><span class="state-badge" data-state="@trigger.State">@trigger.State</span></td>
+                            <td class="time-cell">@FormatTime(trigger.NextFireTimeUtc)</td>
+                            <td class="time-cell">@FormatTime(trigger.PreviousFireTimeUtc)</td>
+                        </tr>
+                    }</tbody>
+                </table></div>
+            }
+            @if (_page.Skip > 0 || _page.HasMore)
+            {
+                <nav class="pager" aria-label="Trigger pages">
+                    <span>Page @PageNumber</span>
+                    <div class="pager-actions">
+                        <button class="button-secondary" type="button" @onclick="PreviousPageAsync" disabled="@(_page.Skip == 0)">Previous</button>
+                        <button class="button-secondary" type="button" @onclick="NextPageAsync" disabled="@(!_page.HasMore)">Next <span aria-hidden="true">→</span></button>
+                    </div>
+                </nav>
+            }
+        </section>
+    }
+</main>

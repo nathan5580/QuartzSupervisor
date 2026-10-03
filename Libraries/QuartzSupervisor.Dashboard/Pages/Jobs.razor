@@ -1,0 +1,84 @@
+@page "/quartz-supervisor/jobs"
+<PageTitle>Jobs · Quartz Supervisor</PageTitle>
+
+<main class="page">
+    <header class="page-heading">
+        <div>
+            <h1>Jobs</h1>
+            <p class="page-description">Browse the work registered with a Quartz scheduler.</p>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <p class="state-panel" role="status"><span class="loading-dot"></span>Loading jobs…</p>
+    }
+    else if (_error is not null)
+    {
+        <p class="notice" role="alert">@_error</p>
+    }
+    else if (_schedulers.Count == 0)
+    {
+        <p class="notice">No schedulers are registered with this host.</p>
+    }
+    else
+    {
+        <section class="filter-panel" aria-label="Job filters">
+            <div class="filter-field">
+                <label for="jobs-scheduler">Scheduler</label>
+                <select id="jobs-scheduler" class="field" @bind="_selectedName" @bind:after="LoadJobsAsync">
+                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@scheduler.Name</option> }
+                </select>
+            </div>
+            <form class="search-form" @onsubmit="SearchJobsAsync" @onsubmit:preventDefault="true">
+                <label for="job-search">Search job names</label>
+                <div class="search-row">
+                    <input id="job-search" class="field" type="search" @bind="_filter" @bind:event="oninput" placeholder="Job name" />
+                    <button class="button-primary" type="submit">Search</button>
+                </div>
+            </form>
+        </section>
+        <section class="table-panel" aria-labelledby="jobs-table-heading">
+            <div class="panel-header table-panel-header">
+                <div>
+                    <h2 id="jobs-table-heading">Registered jobs</h2>
+                    <p class="panel-description">Jobs on @_selectedName</p>
+                </div>
+            </div>
+            @if (_page.Items.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>@(!string.IsNullOrWhiteSpace(_filter) ? "No matching jobs" : _page.Skip > 0 ? "No jobs on this page" : "No jobs registered")</h3>
+                    <p>@(!string.IsNullOrWhiteSpace(_filter) ? "Try another job name." : "Jobs registered with this scheduler will appear here.")</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-scroll"><table>
+                    <caption class="sr-only">Jobs for @_selectedName</caption>
+                    <thead><tr><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Description</th><th scope="col">Durable</th><th scope="col">Recovery</th></tr></thead>
+                    <tbody>@foreach (var job in _page.Items)
+                    {
+                        <tr>
+                            <th scope="row"><span class="entity-name">@job.Name</span></th>
+                            <td><span class="group-tag">@job.Group</span></td>
+                            <td class="description-cell">@(job.Description ?? "—")</td>
+                            <td><span class="boolean-tag">@YesNo(job.Durable)</span></td>
+                            <td><span class="boolean-tag">@YesNo(job.RequestsRecovery)</span></td>
+                        </tr>
+                    }</tbody>
+                </table></div>
+            }
+            @if (_page.Skip > 0 || _page.HasMore)
+            {
+                <nav class="pager" aria-label="Job pages">
+                    <span>Page @PageNumber</span>
+                    <div class="pager-actions">
+                        <button class="button-secondary" type="button" @onclick="PreviousPageAsync" disabled="@(_page.Skip == 0)">Previous</button>
+                        <button class="button-secondary" type="button" @onclick="NextPageAsync" disabled="@(!_page.HasMore)">Next <span aria-hidden="true">→</span></button>
+                    </div>
+                </nav>
+            }
+        </section>
+    }
+</main>

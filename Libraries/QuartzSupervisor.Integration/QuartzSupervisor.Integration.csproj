@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>QuartzSupervisor.Integration</PackageId>
+    <Description>Quartz.NET dashboard query services for .NET hosts.</Description>
+    <PackageTags>quartz;quartznet;monitoring;aspnetcore</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Quartz" />
+  </ItemGroup>
+</Project>

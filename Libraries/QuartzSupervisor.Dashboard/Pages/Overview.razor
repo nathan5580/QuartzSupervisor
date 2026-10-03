@@ -1,0 +1,94 @@
+@page "/quartz-supervisor"
+@page "/quartz-supervisor/overview"
+@using QuartzSupervisor.Integration
+<PageTitle>Overview · Quartz Supervisor</PageTitle>
+
+<main class="page">
+    <header class="page-heading">
+        <div>
+            <h1>Overview</h1>
+            <p class="page-description">A live snapshot of scheduler health and upcoming work.</p>
+        </div>
+        @if (_schedulers.Count > 0)
+        {
+            <div class="scheduler-context">
+                <label for="scheduler-select">Scheduler</label>
+                <select id="scheduler-select" class="field" @bind="_selectedName" @bind:after="LoadOverviewAsync">
+                    @foreach (var scheduler in _schedulers)
+                    {
+                        <option value="@scheduler.Name">@scheduler.Name</option>
+                    }
+                </select>
+            </div>
+        }
+    </header>
+
+    @if (_loading)
+    {
+        <p class="state-panel" role="status"><span class="loading-dot"></span>Loading scheduler information…</p>
+    }
+    else if (_error is not null)
+    {
+        <p class="notice" role="alert">@_error</p>
+    }
+    else if (_schedulers.Count == 0)
+    {
+        <div class="empty-panel">
+            <h2>No scheduler connected</h2>
+            <p>Register a Quartz scheduler with this host to see its live status, jobs, and upcoming triggers.</p>
+        </div>
+    }
+    else if (_overview is not null)
+    {
+        <section class="overview-summary" aria-label="Scheduler summary">
+            <div class="summary-scheduler">
+                <span class="summary-label">Scheduler</span>
+                <strong>@_overview.Scheduler.Name</strong>
+                <span class="health-status" data-status="@_overview.Scheduler.Status"><span class="health-dot"></span>@StatusLabel(_overview.Scheduler.Status)</span>
+            </div>
+            <a class="summary-metric" href="/quartz-supervisor/jobs">
+                <span class="summary-label">Jobs</span>
+                <strong>@_overview.JobCount</strong>
+                <span class="summary-link">Browse jobs <span aria-hidden="true">→</span></span>
+            </a>
+            <a class="summary-metric" href="/quartz-supervisor/triggers">
+                <span class="summary-label">Triggers</span>
+                <strong>@_overview.TriggerCount</strong>
+                <span class="summary-link">Browse triggers <span aria-hidden="true">→</span></span>
+            </a>
+        </section>
+
+        <section class="table-panel upcoming-panel" aria-labelledby="upcoming-heading">
+            <div class="upcoming-heading">
+                <div>
+                    <h2 id="upcoming-heading">Upcoming triggers</h2>
+                    <p class="panel-description">Next fire times · UTC</p>
+                </div>
+                <span class="panel-count">@_overview.UpcomingTriggers.Count shown</span>
+            </div>
+            @if (_overview.UpcomingTriggers.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>No upcoming fire times</h3>
+                    <p>Quartz has no next-fire time available for this scheduler right now.</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-scroll"><table class="upcoming-table">
+                    <caption class="sr-only">Upcoming triggers for @_overview.Scheduler.Name</caption>
+                    <thead><tr><th scope="col">Trigger</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th></tr></thead>
+                    <tbody>@foreach (var trigger in _overview.UpcomingTriggers)
+                    {
+                        <tr>
+                            <th scope="row"><span class="entity-name">@trigger.Name</span><span class="sub-cell">@trigger.Group</span></th>
+                            <td><span class="entity-name">@trigger.JobName</span><span class="sub-cell">@trigger.JobGroup</span></td>
+                            <td><span class="state-badge" data-state="@trigger.State">@trigger.State</span></td>
+                            <td class="time-cell">@trigger.NextFireTimeUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td>
+                        </tr>
+                    }</tbody>
+                </table></div>
+            }
+        </section>
+    }
+</main>

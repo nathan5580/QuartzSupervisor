@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
+
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Quartz" />
+    <ProjectReference Include="../../Libraries/QuartzSupervisor.Integration/QuartzSupervisor.Integration.csproj" />
+    <ProjectReference Include="../../Libraries/QuartzSupervisor.Dashboard/QuartzSupervisor.Dashboard.csproj" />
+  </ItemGroup>
+</Project>
