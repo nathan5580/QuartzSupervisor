@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
 
 <HeadContent>
     <link rel="stylesheet" href="/_content/QuartzSupervisor/dashboard.css" />
@@ -14,7 +16,38 @@
             <NavLink href="/quartz-supervisor/triggers">Triggers</NavLink>
             <NavLink href="/quartz-supervisor/timeline">Timeline</NavLink>
         </nav>
-        <span class="header-context">Quartz.NET</span>
+        <div class="header-tools">
+            <span class="header-context">Quartz.NET</span>
+            <button class="theme-toggle" type="button" @onclick="ToggleThemeAsync" aria-label="@ThemeAction" title="@ThemeAction">
+                @if (_dark)
+                {
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+                    <span>Light</span>
+                }
+                else
+                {
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 15.5A8.5 8.5 0 0 1 8.5 3.6 8.5 8.5 0 1 0 20.4 15.5Z" /></svg>
+                    <span>Dark</span>
+                }
+            </button>
+        </div>
     </header>
     <div class="content">@Body</div>
 </div>
+
+@code {
+    private bool _dark;
+    private string ThemeAction => _dark ? "Switch to light theme" : "Switch to dark theme";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        _dark = await JS.InvokeAsync<bool>("quartzSupervisorTheme.isDark");
+        StateHasChanged();
+    }
+
+    private async Task ToggleThemeAsync() =>
+        _dark = await JS.InvokeAsync<bool>("quartzSupervisorTheme.toggle");
+}

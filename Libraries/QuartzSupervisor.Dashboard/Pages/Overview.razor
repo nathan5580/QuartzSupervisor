@@ -58,6 +58,33 @@
             </a>
         </section>
 
+        <section class="scheduler-controls" aria-label="Scheduler controls">
+            <div>
+                <h2>Scheduler controls</h2>
+                <p>Standby pauses future trigger firings; running jobs continue. Starting resumes scheduling.</p>
+            </div>
+            @if (_overview.Scheduler.Status == "Running")
+            {
+                <button class="button-secondary" type="button" @onclick="StandbySchedulerAsync" disabled="@_acting">Standby scheduler</button>
+            }
+            else if (_overview.Scheduler.Status is "Created" or "Standby")
+            {
+                <button class="button-primary" type="button" @onclick="StartSchedulerAsync" disabled="@_acting">Start scheduler</button>
+            }
+            else
+            {
+                <span class="boolean-tag">Scheduler controls unavailable</span>
+            }
+        </section>
+        @if (_actionMessage is not null)
+        {
+            <p class="notice notice-success" role="status">@_actionMessage</p>
+        }
+        @if (_actionError is not null)
+        {
+            <p class="notice" role="alert">@_actionError</p>
+        }
+
         <section class="table-panel upcoming-panel" aria-labelledby="upcoming-heading">
             <div class="upcoming-heading">
                 <div>

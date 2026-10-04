@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
     <PackageId>QuartzSupervisor</PackageId>
+    <PackageIcon>icon.png</PackageIcon>
     <AssemblyName>QuartzSupervisor</AssemblyName>
     <Description>Minimal Quartz.NET dashboard for ASP.NET Core hosts.</Description>
     <PackageTags>quartz;quartznet;dashboard;monitoring;aspnetcore</PackageTags>
@@ -12,5 +13,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../QuartzSupervisor.Integration/QuartzSupervisor.Integration.csproj" />
+    <None Include="icon.png" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

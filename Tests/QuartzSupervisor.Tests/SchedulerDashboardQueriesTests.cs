@@ -12,6 +12,7 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
     private IScheduler _scheduler = null!;
     private ServiceProvider _services = null!;
     private ISchedulerDashboardQueries _queries = null!;
+    private ISchedulerDashboardCommands _commands = null!;
     private DateTimeOffset _firstFire;
     private readonly List<IScheduler> _namedSchedulers = [];
 
@@ -38,6 +39,7 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
             _namedSchedulers.Add(scheduler);
         }
         _queries = _services.GetRequiredService<ISchedulerDashboardQueries>();
+        _commands = _services.GetRequiredService<ISchedulerDashboardCommands>();
 
         _firstFire = DateTimeOffset.UtcNow.AddHours(1);
         for (var index = 0; index < ItemCount; index++)
@@ -121,12 +123,140 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
         Assert.Contains("not-registered", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Scheduler_can_enter_standby_and_start_again()
+    {
+        await _commands.StandbySchedulerAsync(_scheduler.SchedulerName, _ct);
+        Assert.Equal("Standby", (await _scheduler.GetStatus(_ct)).ToString());
+
+        await _commands.StartSchedulerAsync(_scheduler.SchedulerName, _ct);
+        Assert.Equal("Running", (await _scheduler.GetStatus(_ct)).ToString());
+    }
+
+    [Fact]
+    public async Task External_Quartz_changes_publish_dashboard_updates()
+    {
+        await _queries.GetSchedulersAsync(_ct);
+        var updates = _services.GetRequiredService<ISchedulerDashboardUpdates>();
+        var changed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnChanged(string schedulerName) => changed.TrySetResult(schedulerName);
+        updates.Changed += OnChanged;
+
+        try
+        {
+            await _scheduler.PauseTrigger(new TriggerKey("trigger-00", "triggers"), _ct);
+            Assert.Equal(_scheduler.SchedulerName, await changed.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            updates.Changed -= OnChanged;
+        }
+    }
+    [Fact]
+    public async Task Quartz_events_are_available_in_recent_activity()
+    {
+        await _queries.GetSchedulersAsync(_ct);
+        var triggerKey = new TriggerKey("trigger-00", "triggers");
+        await _scheduler.PauseTrigger(triggerKey, _ct);
+        await _scheduler.ResumeTrigger(triggerKey, _ct);
+
+        var updates = _services.GetRequiredService<ISchedulerDashboardUpdates>();
+        var activity = updates.GetRecentActivity(_scheduler.SchedulerName);
+
+        Assert.Contains("paused", activity[1].Message, StringComparison.Ordinal);
+        Assert.Contains("resumed", activity[0].Message, StringComparison.Ordinal);
+        Assert.Empty(updates.GetRecentActivity("unregistered"));
+    }
+
+    [Fact]
+    public async Task Job_and_trigger_pause_commands_change_trigger_state()
+    {
+        var jobKey = new JobKey("job-00", "jobs");
+        var triggerKey = new TriggerKey("trigger-00", "triggers");
+
+        await _commands.PauseJobAsync(_scheduler.SchedulerName, jobKey.Group, jobKey.Name, _ct);
+        Assert.Equal(TriggerState.Paused, await _scheduler.GetTriggerState(triggerKey, _ct));
+        await _commands.ResumeJobAsync(_scheduler.SchedulerName, jobKey.Group, jobKey.Name, _ct);
+        Assert.Equal(TriggerState.Normal, await _scheduler.GetTriggerState(triggerKey, _ct));
+
+        await _commands.PauseTriggerAsync(_scheduler.SchedulerName, triggerKey.Group, triggerKey.Name, _ct);
+        Assert.Equal(TriggerState.Paused, await _scheduler.GetTriggerState(triggerKey, _ct));
+        await _commands.ResumeTriggerAsync(_scheduler.SchedulerName, triggerKey.Group, triggerKey.Name, _ct);
+        Assert.Equal(TriggerState.Normal, await _scheduler.GetTriggerState(triggerKey, _ct));
+    }
+
+    [Fact]
+    public async Task Trigger_now_executes_the_durable_job()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        BlockingJob.Started = started;
+        BlockingJob.Release = release;
+        var key = new JobKey("manual", "commands");
+        await _scheduler.AddJob(JobBuilder.Create<BlockingJob>().WithIdentity(key).StoreDurably().Build(), new AddJobOptions(), _ct);
+
+        try
+        {
+            await _commands.TriggerJobAsync(_scheduler.SchedulerName, key.Group, key.Name, _ct);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(started.Task.IsCompletedSuccessfully);
+        }
+        finally
+        {
+            release.TrySetResult();
+            BlockingJob.Started = null;
+            BlockingJob.Release = null;
+        }
+    }
+
+    [Fact]
+    public async Task Delete_commands_remove_jobs_and_triggers_and_preserve_missing_result()
+    {
+        var jobKey = new JobKey("job-00", "jobs");
+        var triggerKey = new TriggerKey("trigger-00", "triggers");
+        Assert.True(await _commands.DeleteJobAsync(_scheduler.SchedulerName, jobKey.Group, jobKey.Name, _ct));
+        Assert.Null(await _scheduler.GetJobDetail(jobKey, _ct));
+        Assert.Null(await _scheduler.GetTrigger(triggerKey, _ct));
+
+        Assert.False(await _commands.DeleteJobAsync(_scheduler.SchedulerName, jobKey.Group, jobKey.Name, _ct));
+        Assert.True(await _commands.DeleteTriggerAsync(_scheduler.SchedulerName, "triggers", "trigger-01", _ct));
+        Assert.Null(await _scheduler.GetTrigger(new TriggerKey("trigger-01", "triggers"), _ct));
+        Assert.Null(await _scheduler.GetJobDetail(new JobKey("job-01", "jobs"), _ct));
+    }
+
+    [Fact]
+    public async Task Commands_reject_unknown_schedulers_and_honor_cancellation()
+    {
+        var error = await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            _commands.StartSchedulerAsync("not-registered", _ct));
+        Assert.Contains("not-registered", error.Message, StringComparison.Ordinal);
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _commands.StandbySchedulerAsync(_scheduler.SchedulerName, cancellation.Token));
+    }
+
+
     public async Task DisposeAsync()
     {
         await _scheduler.Shutdown(waitForJobsToComplete: true, _ct);
         foreach (var scheduler in _namedSchedulers)
             await scheduler.Shutdown(waitForJobsToComplete: true, _ct);
         await _services.DisposeAsync();
+    }
+
+    private sealed class BlockingJob : IJob
+    {
+        public static TaskCompletionSource? Started { get; set; }
+        public static TaskCompletionSource? Release { get; set; }
+
+        public async ValueTask Execute(IJobExecutionContext context, CancellationToken cancellationToken)
+        {
+            Started?.TrySetResult();
+            if (Release is { } release)
+                await release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private sealed class NoopJob : IJob

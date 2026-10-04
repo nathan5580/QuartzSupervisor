@@ -6,6 +6,8 @@ namespace QuartzSupervisor.Dashboard.Pages;
 public partial class Overview : IDisposable
 {
     [Inject] public ISchedulerDashboardQueries Queries { get; set; } = default!;
+    [Inject] public ISchedulerDashboardCommands Commands { get; set; } = default!;
+    [Inject] public ISchedulerDashboardUpdates Updates { get; set; } = default!;
 
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private IReadOnlyList<SchedulerSummary> _schedulers = [];
@@ -13,9 +15,13 @@ public partial class Overview : IDisposable
     private string _selectedName = "";
     private string? _error;
     private bool _loading = true;
+    private string? _actionMessage;
+    private string? _actionError;
+    private bool _acting;
 
     protected override async Task OnInitializedAsync()
     {
+        Updates.Changed += OnDashboardChanged;
         try
         {
             _schedulers = await Queries.GetSchedulersAsync(_lifetimeCancellation.Token);
@@ -49,15 +55,56 @@ public partial class Overview : IDisposable
     }
 
 
+    private void OnDashboardChanged(string schedulerName)
+    {
+        if (!string.Equals(_selectedName, schedulerName, StringComparison.Ordinal))
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_loading || _acting)
+                return;
+            await LoadOverviewAsync();
+            StateHasChanged();
+        });
+    }
+
+    private Task StartSchedulerAsync() =>
+        RunSchedulerCommandAsync(Commands.StartSchedulerAsync, "Scheduler started.");
+
+    private Task StandbySchedulerAsync() =>
+        RunSchedulerCommandAsync(Commands.StandbySchedulerAsync, "Scheduler is in standby.");
+
+    private async Task RunSchedulerCommandAsync(
+        Func<string, CancellationToken, Task> command,
+        string successMessage)
+    {
+        _acting = true;
+        _actionMessage = null;
+        _actionError = null;
+        try
+        {
+            await command(_selectedName, _lifetimeCancellation.Token);
+            _actionMessage = successMessage;
+            await LoadOverviewAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _actionError = $"Scheduler command failed: {ex.Message}"; }
+        finally { _acting = false; }
+    }
+
     private static string StatusLabel(string status) => status switch
     {
-        "Started" => "Running",
-        "InStandbyMode" => "Standby",
+        "Running" => "Running",
+        "Standby" => "Standby",
+        "Created" => "Not started",
+        "ShuttingDown" => "Shutting down",
         _ => status
     };
 
     public void Dispose()
     {
+        Updates.Changed -= OnDashboardChanged;
         _lifetimeCancellation.Cancel();
         _lifetimeCancellation.Dispose();
     }

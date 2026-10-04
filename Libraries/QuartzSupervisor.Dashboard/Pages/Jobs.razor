@@ -5,7 +5,7 @@
     <header class="page-heading">
         <div>
             <h1>Jobs</h1>
-            <p class="page-description">Browse the work registered with a Quartz scheduler.</p>
+            <p class="page-description">Live, searchable view of jobs registered with Quartz.</p>
         </div>
     </header>
 
@@ -38,6 +38,14 @@
                 </div>
             </form>
         </section>
+        @if (_actionMessage is not null)
+        {
+            <p class="notice notice-success" role="status">@_actionMessage</p>
+        }
+        @if (_actionError is not null)
+        {
+            <p class="notice" role="alert">@_actionError</p>
+        }
         <section class="table-panel" aria-labelledby="jobs-table-heading">
             <div class="panel-header table-panel-header">
                 <div>
@@ -56,10 +64,16 @@
             {
                 <div class="table-scroll"><table>
                     <caption class="sr-only">Jobs for @_selectedName</caption>
-                    <thead><tr><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Description</th><th scope="col">Durable</th><th scope="col">Recovery</th></tr></thead>
+                    <thead><tr><th scope="col">Actions</th><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Description</th><th scope="col">Durable</th><th scope="col">Recovery</th></tr></thead>
                     <tbody>@foreach (var job in _page.Items)
                     {
                         <tr>
+                            <td><div class="row-actions">
+                                <button class="button-secondary" type="button" @onclick="() => TriggerJobAsync(job)" aria-label="@($"Run {job.Group}.{job.Name} now")" disabled="@_acting">Run now</button>
+                                <button class="button-secondary" type="button" @onclick="() => PauseJobAsync(job)" aria-label="@($"Pause {job.Group}.{job.Name}")" disabled="@_acting">Pause</button>
+                                <button class="button-secondary" type="button" @onclick="() => ResumeJobAsync(job)" aria-label="@($"Resume {job.Group}.{job.Name}")" disabled="@_acting">Resume</button>
+                                <button class="button-danger" type="button" @onclick="() => DeleteJobAsync(job)" aria-label="@($"Delete {job.Group}.{job.Name}")" disabled="@_acting">Delete</button>
+                            </div></td>
                             <th scope="row"><span class="entity-name">@job.Name</span></th>
                             <td><span class="group-tag">@job.Group</span></td>
                             <td class="description-cell">@(job.Description ?? "—")</td>

@@ -1,6 +1,6 @@
 # Quartz Supervisor
 
-A read-only operations dashboard for Quartz.NET, embedded in an existing ASP.NET Core API. Keep your scheduler, routes, and hosting model. [Source code on GitHub](https://github.com/nathan5580/QuartzSupervisor).
+A Quartz.NET operations dashboard embedded in an existing ASP.NET Core API. Keep your scheduler, routes, and hosting model. [Source code on GitHub](https://github.com/nathan5580/QuartzSupervisor).
 
 ## Compatibility
 
@@ -64,11 +64,16 @@ Use `AllowAnonymous()` only for a deliberately public or local-only deployment. 
 ## Scope
 
 - Overview: scheduler status, job and trigger counts, and the next five fire times.
-- Jobs and Triggers: searchable, paged read-only listings.
+- Jobs and Triggers: searchable, paged listings with run-now, pause/resume, and deletion controls.
+- Scheduler controls: start or place a scheduler in reversible standby.
 - Multiple schedulers registered in the same host.
-- Timeline: honest empty state; execution history is not persisted yet.
+- Timeline: live scheduler and execution events observed after first connection; up to 100 per scheduler in memory, not persisted. The all-schedulers view shows the latest 100 overall.
 
-No job data maps, secrets, or scheduler database contents are displayed. No run, pause, reschedule, or delete controls are implemented.
+Standby pauses future trigger firings but does not interrupt running jobs. Starting resumes scheduling; Quartz applies its configured misfire instructions. “Run now” requests immediate execution. Pausing a job pauses its triggers; trigger controls pause or resume one schedule. Deleting a job also deletes its triggers. Removing a trigger may also remove its non-durable job when it was the last trigger; both destructive actions require confirmation. Scheduling and rescheduling new triggers are not supported.
+
+No job data maps, secrets, or scheduler database contents are displayed.
+
+Quartz listener callbacks refresh active dashboard views through the host's existing Blazor Server SignalR connection when scheduler, scheduling, pause/delete, or job/trigger execution state changes. Timeline capture starts when each scheduler is first queried; its recent events are cleared when the host process restarts. No polling or extra SignalR hub is added. The light/dark theme follows the browser's system preference until changed; the choice is stored per browser.
 
 ## Contributing and tests
 

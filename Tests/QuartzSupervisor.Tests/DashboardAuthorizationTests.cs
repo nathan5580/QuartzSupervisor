@@ -37,7 +37,8 @@ public sealed class DashboardAuthorizationTests
 
         using var anonymousClient = app.GetTestClient();
         Assert.Equal(HttpStatusCode.OK, (await anonymousClient.GetAsync("/api/health")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymousClient.GetAsync("/quartz-supervisor")).StatusCode);
+        foreach (var path in new[] { "/quartz-supervisor", "/quartz-supervisor/jobs", "/quartz-supervisor/triggers", "/quartz-supervisor/timeline" })
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymousClient.GetAsync(path)).StatusCode);
 
         using var authenticatedClient = app.GetTestClient();
         authenticatedClient.DefaultRequestHeaders.Add("X-Test-User", "operator");

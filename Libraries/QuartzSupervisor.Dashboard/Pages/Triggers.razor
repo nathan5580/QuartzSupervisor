@@ -5,7 +5,7 @@
     <header class="page-heading">
         <div>
             <h1>Triggers</h1>
-            <p class="page-description">Inspect trigger state and the next and previous fire times.</p>
+            <p class="page-description">Live, searchable view of trigger state and upcoming fire times.</p>
         </div>
     </header>
 
@@ -38,6 +38,14 @@
                 </div>
             </form>
         </section>
+        @if (_actionMessage is not null)
+        {
+            <p class="notice notice-success" role="status">@_actionMessage</p>
+        }
+        @if (_actionError is not null)
+        {
+            <p class="notice" role="alert">@_actionError</p>
+        }
         <section class="table-panel" aria-labelledby="triggers-table-heading">
             <div class="panel-header table-panel-header">
                 <div>
@@ -56,10 +64,21 @@
             {
                 <div class="table-scroll"><table>
                     <caption class="sr-only">Triggers for @_selectedName</caption>
-                    <thead><tr><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th><th scope="col">Previous fire (UTC)</th></tr></thead>
+                    <thead><tr><th scope="col">Actions</th><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th><th scope="col">Previous fire (UTC)</th></tr></thead>
                     <tbody>@foreach (var trigger in _page.Items)
                     {
                         <tr>
+                            <td><div class="row-actions">
+                                @if (trigger.State == "Paused")
+                                {
+                                    <button class="button-secondary" type="button" @onclick="() => ResumeTriggerAsync(trigger)" aria-label="@($"Resume {trigger.Group}.{trigger.Name}")" disabled="@_acting">Resume</button>
+                                }
+                                else
+                                {
+                                    <button class="button-secondary" type="button" @onclick="() => PauseTriggerAsync(trigger)" aria-label="@($"Pause {trigger.Group}.{trigger.Name}")" disabled="@_acting">Pause</button>
+                                }
+                                <button class="button-danger" type="button" @onclick="() => DeleteTriggerAsync(trigger)" aria-label="@($"Delete {trigger.Group}.{trigger.Name}")" disabled="@_acting">Delete</button>
+                            </div></td>
                             <th scope="row"><span class="entity-name">@trigger.Name</span></th>
                             <td><span class="group-tag">@trigger.Group</span></td>
                             <td><span class="entity-name">@trigger.JobName</span><span class="sub-cell">(@trigger.JobGroup)</span></td>

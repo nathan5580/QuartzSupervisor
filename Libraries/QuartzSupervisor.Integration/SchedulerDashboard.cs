@@ -28,23 +28,45 @@ public interface ISchedulerDashboardQueries
     Task<DashboardPage<TriggerSummary>> GetTriggersAsync(string schedulerName, string? nameFilter, int skip, CancellationToken ct);
 }
 
+public interface ISchedulerDashboardCommands
+{
+    Task StartSchedulerAsync(string schedulerName, CancellationToken ct);
+    Task StandbySchedulerAsync(string schedulerName, CancellationToken ct);
+    Task TriggerJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct);
+    Task PauseJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct);
+    Task ResumeJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct);
+    Task<bool> DeleteJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct);
+    Task PauseTriggerAsync(string schedulerName, string triggerGroup, string triggerName, CancellationToken ct);
+    Task ResumeTriggerAsync(string schedulerName, string triggerGroup, string triggerName, CancellationToken ct);
+    Task<bool> DeleteTriggerAsync(string schedulerName, string triggerGroup, string triggerName, CancellationToken ct);
+}
+
 public static class SchedulerDashboardServiceCollectionExtensions
 {
     public static IServiceCollection AddQuartzSupervisorDashboard(this IServiceCollection services)
     {
+        services.TryAddSingleton<SchedulerDashboardEvents>();
+        services.TryAddSingleton<ISchedulerDashboardUpdates>(provider => provider.GetRequiredService<SchedulerDashboardEvents>());
+        services.TryAddSingleton<SchedulerDashboardListenerRegistration>();
         services.TryAddSingleton<ISchedulerDashboardQueries, SchedulerDashboardQueries>();
+        services.TryAddSingleton<ISchedulerDashboardCommands, SchedulerDashboardCommands>();
         return services;
     }
 }
 
-internal sealed class SchedulerDashboardQueries(ISchedulerFactory schedulerFactory) : ISchedulerDashboardQueries
+internal sealed class SchedulerDashboardQueries(
+    ISchedulerFactory schedulerFactory,
+    SchedulerDashboardListenerRegistration listeners) : ISchedulerDashboardQueries
 {
     public async Task<IReadOnlyList<SchedulerSummary>> GetSchedulersAsync(CancellationToken ct)
     {
         var schedulers = await schedulerFactory.GetAllSchedulers(ct).ConfigureAwait(false);
         var result = new List<SchedulerSummary>(schedulers.Count);
         foreach (var scheduler in schedulers.OrderBy(x => x.SchedulerName, StringComparer.OrdinalIgnoreCase))
+        {
+            listeners.EnsureAttached(scheduler);
             result.Add(await SummarizeAsync(scheduler, ct).ConfigureAwait(false));
+        }
         return result;
     }
 
@@ -98,7 +120,6 @@ internal sealed class SchedulerDashboardQueries(ISchedulerFactory schedulerFacto
             Skip = skip,
             Take = PageSize
         }, ct).ConfigureAwait(false);
-
         return new DashboardPage<TriggerSummary>(triggers.Items.Select(ToSummary).ToArray(), triggers.HasMore, skip, PageSize);
     }
     private const int PageSize = 50;
@@ -112,11 +133,58 @@ internal sealed class SchedulerDashboardQueries(ISchedulerFactory schedulerFacto
     private async Task<IScheduler> GetSchedulerAsync(string name, CancellationToken ct)
     {
         var schedulers = await schedulerFactory.GetAllSchedulers(ct).ConfigureAwait(false);
-        var found = schedulers.FirstOrDefault(x => string.Equals(x.SchedulerName, name, StringComparison.Ordinal));
-        return found ?? throw new KeyNotFoundException($"No registered scheduler named '{name}'.");
-    }
+        var scheduler = schedulers.FirstOrDefault(x => string.Equals(x.SchedulerName, name, StringComparison.Ordinal))
+            ?? throw new KeyNotFoundException($"No registered scheduler named '{name}'.");
+        listeners.EnsureAttached(scheduler);
+        return scheduler;
 
+    }
     private static async Task<SchedulerSummary> SummarizeAsync(IScheduler scheduler, CancellationToken ct) =>
         new(scheduler.SchedulerName, (await scheduler.GetStatus(ct).ConfigureAwait(false)).ToString());
 
+}
+
+internal sealed class SchedulerDashboardCommands(ISchedulerFactory schedulerFactory) : ISchedulerDashboardCommands
+{
+    public async Task StartSchedulerAsync(string schedulerName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false)).Start(ct).ConfigureAwait(false);
+
+    public async Task StandbySchedulerAsync(string schedulerName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false)).Standby(ct).ConfigureAwait(false);
+
+    public async Task TriggerJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
+            .TriggerJob(new JobKey(jobName, jobGroup), cancellationToken: ct).ConfigureAwait(false);
+
+    public async Task PauseJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
+            .PauseJob(new JobKey(jobName, jobGroup), ct).ConfigureAwait(false);
+
+    public async Task ResumeJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
+            .ResumeJob(new JobKey(jobName, jobGroup), ct).ConfigureAwait(false);
+
+    public async Task<bool> DeleteJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
+            .DeleteJob(new JobKey(jobName, jobGroup), ct).ConfigureAwait(false);
+
+    public async Task PauseTriggerAsync(string schedulerName, string triggerGroup, string triggerName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
+            .PauseTrigger(new TriggerKey(triggerName, triggerGroup), ct).ConfigureAwait(false);
+
+    public async Task ResumeTriggerAsync(string schedulerName, string triggerGroup, string triggerName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
+            .ResumeTrigger(new TriggerKey(triggerName, triggerGroup), ct).ConfigureAwait(false);
+
+    public async Task<bool> DeleteTriggerAsync(string schedulerName, string triggerGroup, string triggerName, CancellationToken ct) =>
+        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
+            .UnscheduleJob(new TriggerKey(triggerName, triggerGroup), ct).ConfigureAwait(false);
+
+    private async Task<IScheduler> GetSchedulerAsync(string name, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var schedulers = await schedulerFactory.GetAllSchedulers(ct).ConfigureAwait(false);
+        return schedulers.FirstOrDefault(x => string.Equals(x.SchedulerName, name, StringComparison.Ordinal))
+            ?? throw new KeyNotFoundException($"No registered scheduler named '{name}'.");
+    }
 }

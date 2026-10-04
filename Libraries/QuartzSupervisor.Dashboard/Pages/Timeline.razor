@@ -1,20 +1,73 @@
 @page "/quartz-supervisor/timeline"
+@using System.Globalization
 <PageTitle>Timeline · Quartz Supervisor</PageTitle>
 
 <main class="page">
     <header class="page-heading">
         <div>
             <h1>Timeline</h1>
-            <p class="page-description">Execution history and scheduler activity.</p>
+            <p class="page-description">Live execution and scheduler events observed by this host.</p>
         </div>
     </header>
-    <section class="empty-panel timeline-empty" aria-labelledby="timeline-empty-heading">
-        <span class="empty-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3.5 2" /></svg>
-        </span>
-        <div>
-            <h2 id="timeline-empty-heading">Execution history isn’t available</h2>
-            <p>This dashboard does not currently retain scheduler execution events, so past runs aren’t available here.</p>
-        </div>
-    </section>
+
+    @if (_loading)
+    {
+        <p class="state-panel" role="status"><span class="loading-dot"></span>Loading scheduler activity…</p>
+    }
+    else if (_error is not null)
+    {
+        <p class="notice" role="alert">@_error</p>
+    }
+    else if (_schedulers.Count == 0)
+    {
+        <p class="notice">No schedulers are registered with this host.</p>
+    }
+    else
+    {
+        <section class="filter-panel timeline-filter" aria-label="Timeline filters">
+            <div class="filter-field">
+                <label for="timeline-scheduler">Scheduler</label>
+                <select id="timeline-scheduler" class="field" @bind="_selectedName" @bind:after="RefreshActivity">
+                    <option value="">All schedulers</option>
+                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@scheduler.Name</option> }
+                </select>
+            </div>
+            <p class="timeline-retention">Up to 100 recent events per scheduler · memory only · cleared when the host restarts</p>
+        </section>
+
+        <section class="timeline-panel" aria-labelledby="timeline-heading">
+            <div class="panel-header">
+                <div>
+                    <h2 id="timeline-heading">Recent activity</h2>
+                    <p class="panel-description">@_activity.Count event@(_activity.Count == 1 ? "" : "s")</p>
+                </div>
+            </div>
+            @if (_activity.Count == 0)
+            {
+                <div class="empty-state">
+                    <h3>Waiting for scheduler activity</h3>
+                    <p>Quartz events will appear here as jobs run or scheduler state changes. Only activity observed after this dashboard connects is shown.</p>
+                </div>
+            }
+            else
+            {
+                <ol class="timeline-list" aria-label="Recent scheduler activity">
+                    @foreach (var item in _activity)
+                    {
+                        <li class="timeline-item" data-error="@item.IsError.ToString().ToLowerInvariant()">
+                            <span class="timeline-marker" aria-hidden="true"></span>
+                            <div class="timeline-entry">
+                                <div class="timeline-entry-heading">
+                                    <span class="timeline-category">@item.Category</span>
+                                    <time datetime="@item.TimestampUtc.ToString("O", CultureInfo.InvariantCulture)">@FormatTimestamp(item.TimestampUtc)</time>
+                                </div>
+                                <p>@item.Message</p>
+                                <span class="timeline-scheduler">@item.SchedulerName</span>
+                            </div>
+                        </li>
+                    }
+                </ol>
+            }
+        </section>
+    }
 </main>

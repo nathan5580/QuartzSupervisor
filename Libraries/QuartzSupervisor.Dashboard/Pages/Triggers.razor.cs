@@ -1,3 +1,4 @@
+using Microsoft.JSInterop;
 using Microsoft.AspNetCore.Components;
 using QuartzSupervisor.Integration;
 
@@ -6,6 +7,9 @@ namespace QuartzSupervisor.Dashboard.Pages;
 public partial class Triggers : IDisposable
 {
     [Inject] public ISchedulerDashboardQueries Queries { get; set; } = default!;
+    [Inject] public ISchedulerDashboardCommands Commands { get; set; } = default!;
+    [Inject] public IJSRuntime JS { get; set; } = default!;
+    [Inject] public ISchedulerDashboardUpdates Updates { get; set; } = default!;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private IReadOnlyList<SchedulerSummary> _schedulers = [];
     private DashboardPage<TriggerSummary> _page = new([], false, 0, 50);
@@ -13,10 +17,14 @@ public partial class Triggers : IDisposable
     private string _filter = "";
     private string? _error;
     private bool _loading = true;
+    private string? _actionMessage;
+    private string? _actionError;
+    private bool _acting;
     private int PageNumber => _page.Skip / _page.PageSize + 1;
 
     protected override async Task OnInitializedAsync()
     {
+        Updates.Changed += OnDashboardChanged;
         try
         {
             _schedulers = await Queries.GetSchedulersAsync(_lifetimeCancellation.Token);
@@ -50,10 +58,62 @@ public partial class Triggers : IDisposable
         finally { _loading = false; }
     }
 
+    private void OnDashboardChanged(string schedulerName)
+    {
+        if (!string.Equals(_selectedName, schedulerName, StringComparison.Ordinal))
+            return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (_loading || _acting)
+                return;
+            await LoadPageAsync(_page.Skip);
+            StateHasChanged();
+        });
+    }
+
+    private Task PauseTriggerAsync(TriggerSummary trigger) =>
+        RunCommandAsync(ct => Commands.PauseTriggerAsync(_selectedName, trigger.Group, trigger.Name, ct),
+            $"Paused '{trigger.Group}.{trigger.Name}'.");
+
+    private Task ResumeTriggerAsync(TriggerSummary trigger) =>
+        RunCommandAsync(ct => Commands.ResumeTriggerAsync(_selectedName, trigger.Group, trigger.Name, ct),
+            $"Resumed '{trigger.Group}.{trigger.Name}'.");
+
+    private async Task DeleteTriggerAsync(TriggerSummary trigger)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm",
+                $"Remove trigger '{trigger.Group}.{trigger.Name}'? Quartz may also remove its non-durable job if this is the job's last trigger."))
+            return;
+
+        await RunCommandAsync(async ct =>
+        {
+            if (!await Commands.DeleteTriggerAsync(_selectedName, trigger.Group, trigger.Name, ct))
+                throw new InvalidOperationException("The trigger was already removed.");
+        }, $"Removed '{trigger.Group}.{trigger.Name}'.");
+    }
+
+    private async Task RunCommandAsync(Func<CancellationToken, Task> command, string successMessage)
+    {
+        _acting = true;
+        _actionMessage = null;
+        _actionError = null;
+        try
+        {
+            await command(_lifetimeCancellation.Token);
+            _actionMessage = successMessage;
+            await LoadPageAsync(_page.Skip);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _actionError = $"Trigger command failed: {ex.Message}"; }
+        finally { _acting = false; }
+    }
+
     private static string FormatTime(DateTimeOffset? value) => value?.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'") ?? "—";
 
     public void Dispose()
     {
+        Updates.Changed -= OnDashboardChanged;
         _lifetimeCancellation.Cancel();
         _lifetimeCancellation.Dispose();
     }
