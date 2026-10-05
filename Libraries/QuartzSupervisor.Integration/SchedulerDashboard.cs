@@ -64,9 +64,26 @@ internal sealed class SchedulerDashboardQueries(
         var result = new List<SchedulerSummary>(schedulers.Count);
         foreach (var scheduler in schedulers.OrderBy(x => x.SchedulerName, StringComparer.OrdinalIgnoreCase))
         {
-            listeners.EnsureAttached(scheduler);
-            result.Add(await SummarizeAsync(scheduler, ct).ConfigureAwait(false));
+            try
+            {
+                listeners.EnsureAttached(scheduler);
+                result.Add(await SummarizeAsync(scheduler, ct).ConfigureAwait(false));
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException)
+            {
+                result.Add(new SchedulerSummary(scheduler.SchedulerName, "Unavailable"));
+            }
+            catch (Exception ex) when (ex is SchedulerException or HttpRequestException)
+            {
+                result.Add(new SchedulerSummary(scheduler.SchedulerName, "Unavailable"));
+            }
         }
+        result.Sort((left, right) =>
+        {
+            var availability = (left.Status == "Unavailable").CompareTo(right.Status == "Unavailable");
+            return availability != 0 ? availability : StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name);
+        });
         return result;
     }
 

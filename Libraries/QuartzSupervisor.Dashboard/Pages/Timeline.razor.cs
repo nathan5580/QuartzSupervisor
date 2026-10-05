@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using QuartzSupervisor.Integration;
 
 namespace QuartzSupervisor.Dashboard.Pages;
@@ -7,6 +8,7 @@ public partial class Timeline : IDisposable
 {
     [Inject] public ISchedulerDashboardQueries Queries { get; set; } = default!;
     [Inject] public ISchedulerDashboardUpdates Updates { get; set; } = default!;
+    [Inject] public IJSRuntime JS { get; set; } = default!;
 
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private IReadOnlyList<SchedulerSummary> _schedulers = [];
@@ -14,6 +16,9 @@ public partial class Timeline : IDisposable
     private string _selectedName = "";
     private string? _error;
     private bool _loading = true;
+    private ElementReference _timelineScroll;
+    private bool _rendered;
+    private bool _scrollToLatest = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -27,10 +32,20 @@ public partial class Timeline : IDisposable
         catch (Exception) { _error = "Scheduler activity is unavailable."; }
         finally { _loading = false; }
     }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _rendered = true;
+        if (!_scrollToLatest || _activity.Count == 0)
+            return;
+
+        _scrollToLatest = false;
+        await JS.InvokeVoidAsync("quartzSupervisorTimeline.scrollToLatest", _timelineScroll);
+    }
 
     private Task RefreshActivity()
     {
         _activity = Updates.GetRecentActivity(string.IsNullOrEmpty(_selectedName) ? null : _selectedName);
+        _scrollToLatest = true;
         return Task.CompletedTask;
     }
 
@@ -41,7 +56,10 @@ public partial class Timeline : IDisposable
 
         _ = InvokeAsync(async () =>
         {
+            var followLatest = !_rendered || _activity.Count == 0 ||
+                await JS.InvokeAsync<bool>("quartzSupervisorTimeline.isAtEnd", _timelineScroll);
             await RefreshActivity();
+            _scrollToLatest = followLatest;
             StateHasChanged();
         });
     }

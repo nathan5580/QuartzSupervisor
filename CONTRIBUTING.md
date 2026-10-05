@@ -1,8 +1,8 @@
 # Contributing
 
-## Local setup
+## Local workflow
 
-Requires the .NET 10 SDK. The solution uses Quartz's in-memory store for tests; no database or credentials are needed.
+Requires the .NET 10 SDK. Tests use Quartz's in-memory store and ASP.NET Core's test host; no external database or credentials are needed.
 
 ```sh
 dotnet restore QuartzSupervisor.slnx
@@ -11,8 +11,12 @@ dotnet test QuartzSupervisor.slnx
 dotnet run --project Samples/Embedded/Embedded.csproj
 ```
 
-The sample dashboard allows anonymous access only in Development and binds to localhost. Keep production access behind the host's authentication and authorization.
+The sample permits anonymous dashboard access only in Development and binds to localhost there. Production access belongs behind the host application's authentication and authorization; do not copy the sample's Development exception into a public deployment.
 
-## Changes
+## Issues and pull requests
 
-Keep changes focused, preserve the host application's Quartz and ASP.NET Core setup, and add tests for observable behavior. Do not read Quartz storage tables directly; use Quartz APIs. Update the README when setup, compatibility, security, or supported dashboard behavior changes.
+For bugs, include the .NET and Quartz versions, hosting/authentication setup, concise reproduction steps, expected versus actual behavior, and relevant sanitized logs or exception text. Never attach credentials, tokens, job data, or production scheduler details. For feature requests, describe the operational need and desired observable behavior.
+
+Keep PRs focused, explain user-visible changes and compatibility impact, and include or update tests for behavior changes. Run restore, build, and tests before submitting; mention any command that could not be run. Update README guidance when setup, compatibility, security, or supported behavior changes. Use Quartz APIs rather than reading storage tables, and preserve host-owned authentication and Quartz configuration.
+
+For suspected vulnerabilities, follow [SECURITY.md](SECURITY.md), not a public issue.

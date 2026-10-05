@@ -1,7 +1,7 @@
 @page "/quartz-supervisor/triggers"
 <PageTitle>Triggers · Quartz Supervisor</PageTitle>
 
-<main class="page">
+<main class="page" id="main-content" tabindex="-1">
     <header class="page-heading">
         <div>
             <h1>Triggers</h1>
@@ -27,7 +27,7 @@
             <div class="filter-field">
                 <label for="triggers-scheduler">Scheduler</label>
                 <select id="triggers-scheduler" class="field" @bind="_selectedName" @bind:after="LoadTriggersAsync">
-                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@scheduler.Name</option> }
+                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@(scheduler.Status == "Unavailable" ? $"{scheduler.Name} (Unavailable)" : scheduler.Name)</option> }
                 </select>
             </div>
             <form class="search-form" @onsubmit="SearchTriggersAsync" @onsubmit:preventDefault="true">

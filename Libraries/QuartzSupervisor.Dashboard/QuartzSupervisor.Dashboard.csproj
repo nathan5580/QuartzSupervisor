@@ -7,8 +7,8 @@
     <PackageId>QuartzSupervisor</PackageId>
     <PackageIcon>icon.png</PackageIcon>
     <AssemblyName>QuartzSupervisor</AssemblyName>
-    <Description>Minimal Quartz.NET dashboard for ASP.NET Core hosts.</Description>
-    <PackageTags>quartz;quartznet;dashboard;monitoring;aspnetcore</PackageTags>
+    <Description>Embedded Quartz.NET scheduler dashboard for ASP.NET Core applications, with job and trigger management, scheduler controls, and live execution events.</Description>
+    <PackageTags>quartz;quartznet;dashboard;scheduler;monitoring;aspnetcore;blazor</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

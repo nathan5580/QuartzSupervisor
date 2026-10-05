@@ -5,7 +5,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 if (builder.Environment.IsDevelopment())
 {
-    builder.WebHost.UseUrls("http://localhost:5000");
+    builder.WebHost.UseUrls(builder.Configuration["urls"] ?? "http://localhost:5000");
 }
 
 builder.Services.AddQuartz(options =>

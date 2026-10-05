@@ -6,6 +6,8 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.Web" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
     <PackageVersion Include="Quartz" Version="4.3.0" />
+    <PackageVersion Include="Quartz.AspNetCore" Version="4.3.0" />
+    <PackageVersion Include="Quartz.HttpClient" Version="4.3.0" />
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.6" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />

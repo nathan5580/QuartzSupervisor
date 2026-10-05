@@ -80,10 +80,13 @@ internal sealed class SchedulerDashboardListenerRegistration(SchedulerDashboardE
             if (!_attached.Add(scheduler))
                 return;
 
+            var listener = new SchedulerDashboardChangeListener(events);
+            IListenerManager manager;
+            try { manager = scheduler.ListenerManager; }
+            catch (NotSupportedException) { return; } // Remote schedulers own listeners in their process.
+
             try
             {
-                var listener = new SchedulerDashboardChangeListener(events);
-                var manager = scheduler.ListenerManager;
                 manager.AddSchedulerListener(listener);
                 manager.AddJobListener(listener, [Matchers.AllJobs()]);
                 manager.AddTriggerListener(listener, [Matchers.AllTriggers()]);

@@ -11,6 +11,29 @@
 </head>
 <body>
     <Routes @rendermode="InteractiveServer" />
+    <dialog id="components-reconnect-modal" class="reconnect-modal" aria-labelledby="reconnect-heading" data-nosnippet>
+        <div class="reconnect-content">
+            <span class="reconnect-symbol" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0 1 20 0M5.5 12.3a10 10 0 0 1 13 0M9 15.8a5 5 0 0 1 6 0M12 20h.01" /></svg>
+            </span>
+            <div class="reconnect-copy">
+                <p class="reconnect-brand">Quartz Supervisor</p>
+                <h2 id="reconnect-heading">Connection interrupted</h2>
+                <p class="reconnect-message components-reconnect-first-attempt-visible" role="status" aria-live="polite">Reconnecting to the server…</p>
+                <p class="reconnect-message components-reconnect-repeated-attempt-visible" role="status" aria-live="polite">Still offline. Retrying in <span id="components-seconds-to-next-attempt"></span>s.</p>
+                <p class="reconnect-message components-reconnect-failed-visible" role="status" aria-live="polite">The server could not be reached. Retry or refresh the page.</p>
+                <p class="reconnect-message components-pause-visible" role="status" aria-live="polite">This session was paused by the server.</p>
+                <p class="reconnect-message components-resume-failed-visible" role="status" aria-live="polite">The session could not be resumed. Retry or refresh the page.</p>
+            </div>
+            <div class="reconnect-spinner components-rejoining-animation" aria-hidden="true"><span></span><span></span></div>
+            <div class="reconnect-actions">
+                <button id="components-reconnect-button" class="button-primary reconnect-action components-reconnect-failed-visible components-resume-failed-visible" type="button">Retry connection</button>
+                <button id="components-resume-button" class="button-primary reconnect-action components-pause-visible components-resume-failed-visible" type="button">Resume session</button>
+                <button id="components-refresh-button" class="button-secondary reconnect-action components-reconnect-failed-visible components-resume-failed-visible" type="button">Refresh page</button>
+            </div>
+        </div>
+    </dialog>
+    <script src="_content/QuartzSupervisor/dashboard-reconnect.js"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

@@ -2,11 +2,11 @@
 @using System.Globalization
 <PageTitle>Timeline · Quartz Supervisor</PageTitle>
 
-<main class="page">
+<main class="page" id="main-content" tabindex="-1">
     <header class="page-heading">
         <div>
             <h1>Timeline</h1>
-            <p class="page-description">Live execution and scheduler events observed by this host.</p>
+            <p class="page-description">Live scheduler activity · oldest on the left, newest on the right.</p>
         </div>
     </header>
 
@@ -29,7 +29,7 @@
                 <label for="timeline-scheduler">Scheduler</label>
                 <select id="timeline-scheduler" class="field" @bind="_selectedName" @bind:after="RefreshActivity">
                     <option value="">All schedulers</option>
-                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@scheduler.Name</option> }
+                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@(scheduler.Status == "Unavailable" ? $"{scheduler.Name} (Unavailable)" : scheduler.Name)</option> }
                 </select>
             </div>
             <p class="timeline-retention">Up to 100 recent events per scheduler · memory only · cleared when the host restarts</p>
@@ -39,7 +39,7 @@
             <div class="panel-header">
                 <div>
                     <h2 id="timeline-heading">Recent activity</h2>
-                    <p class="panel-description">@_activity.Count event@(_activity.Count == 1 ? "" : "s")</p>
+                    <p class="panel-description" aria-live="polite"><span class="timeline-live" aria-hidden="true"></span>Live · @_activity.Count event@(_activity.Count == 1 ? "" : "s")</p>
                 </div>
             </div>
             @if (_activity.Count == 0)
@@ -51,8 +51,9 @@
             }
             else
             {
-                <ol class="timeline-list" aria-label="Recent scheduler activity">
-                    @foreach (var item in _activity)
+                <div class="timeline-scroll" @ref="_timelineScroll" role="region" aria-label="Live scheduler events, oldest on the left. Scroll horizontally for recent events." tabindex="0">
+                    <ol class="timeline-list" aria-label="Recent scheduler activity">
+                        @foreach (var item in _activity.Reverse())
                     {
                         <li class="timeline-item" data-error="@item.IsError.ToString().ToLowerInvariant()">
                             <span class="timeline-marker" aria-hidden="true"></span>
@@ -67,6 +68,7 @@
                         </li>
                     }
                 </ol>
+                </div>
             }
         </section>
     }

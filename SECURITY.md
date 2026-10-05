@@ -1,5 +1,5 @@
 # Security
 
-Quartz Supervisor exposes scheduler information and should be treated as an administrative surface. Keep the dashboard's authenticated-by-default endpoint policy and configure authentication and authorization in the host application. Do not enable anonymous access on an untrusted network.
+Quartz Supervisor exposes scheduler state and administrative controls. Treat its dashboard as a privileged surface: keep the default authenticated endpoint requirement and configure authentication and authorization in the host application. Do not allow anonymous access on an untrusted network. The sample's anonymous Development mode is local-only; it is not a production security configuration.
 
-To report a suspected vulnerability, email **hi@n8.lu** with a description and reproduction details. Avoid opening a public issue until the report has been reviewed.
+To report a suspected vulnerability, email **hi@n8.lu** privately with a description, affected version or commit, impact, and reproduction steps when available. Do not open a public issue or publish exploit details before coordinating disclosure. Avoid sending credentials, secrets, or real scheduler/job data; redact sensitive material. The project has no stated response-time or coordinated-disclosure guarantee.

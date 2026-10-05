@@ -3,7 +3,7 @@
 @using QuartzSupervisor.Integration
 <PageTitle>Overview · Quartz Supervisor</PageTitle>
 
-<main class="page">
+<main class="page" id="main-content" tabindex="-1">
     <header class="page-heading">
         <div>
             <h1>Overview</h1>
@@ -16,7 +16,7 @@
                 <select id="scheduler-select" class="field" @bind="_selectedName" @bind:after="LoadOverviewAsync">
                     @foreach (var scheduler in _schedulers)
                     {
-                        <option value="@scheduler.Name">@scheduler.Name</option>
+                        <option value="@scheduler.Name">@(scheduler.Status == "Unavailable" ? $"{scheduler.Name} (Unavailable)" : scheduler.Name)</option>
                     }
                 </select>
             </div>
