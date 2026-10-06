@@ -34,5 +34,6 @@ app.Run();
 
 file sealed class HeartbeatJob : IJob
 {
-    public ValueTask Execute(IJobExecutionContext context, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+    public async ValueTask Execute(IJobExecutionContext context, CancellationToken cancellationToken) =>
+        await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
 }

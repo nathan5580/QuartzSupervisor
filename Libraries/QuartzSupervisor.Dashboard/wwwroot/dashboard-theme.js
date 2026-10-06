@@ -36,25 +36,4 @@
             return theme === "dark";
         }
     };
-    const followingTimelines = new WeakSet();
-    function trackTimeline(element) {
-        if (element.dataset.followTracking)
-            return;
-        element.dataset.followTracking = "true";
-        for (const event of ["wheel", "touchstart", "pointerdown", "keydown"])
-            element.addEventListener(event, () => followingTimelines.delete(element), { passive: true });
-    }
-
-    window.quartzSupervisorTimeline = {
-        isAtEnd: element => {
-            trackTimeline(element);
-            return followingTimelines.has(element) ||
-                element.scrollWidth - element.scrollLeft - element.clientWidth < 24;
-        },
-        scrollToLatest: element => {
-            trackTimeline(element);
-            followingTimelines.add(element);
-            element.scrollTo({ left: element.scrollWidth });
-        }
-    };
 })();

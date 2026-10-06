@@ -153,22 +153,6 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
         }
     }
     [Fact]
-    public async Task Quartz_events_are_available_in_recent_activity()
-    {
-        await _queries.GetSchedulersAsync(_ct);
-        var triggerKey = new TriggerKey("trigger-00", "triggers");
-        await _scheduler.PauseTrigger(triggerKey, _ct);
-        await _scheduler.ResumeTrigger(triggerKey, _ct);
-
-        var updates = _services.GetRequiredService<ISchedulerDashboardUpdates>();
-        var activity = updates.GetRecentActivity(_scheduler.SchedulerName);
-
-        Assert.Contains("paused", activity[1].Message, StringComparison.Ordinal);
-        Assert.Contains("resumed", activity[0].Message, StringComparison.Ordinal);
-        Assert.Empty(updates.GetRecentActivity("unregistered"));
-    }
-
-    [Fact]
     public async Task Job_and_trigger_pause_commands_change_trigger_state()
     {
         var jobKey = new JobKey("job-00", "jobs");
@@ -186,23 +170,54 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Trigger_now_executes_the_durable_job()
+    public async Task Trigger_now_publishes_running_and_completed_execution_durations()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource<DashboardExecution>(TaskCreationOptions.RunContinuationsAsynchronously);
         BlockingJob.Started = started;
         BlockingJob.Release = release;
         var key = new JobKey("manual", "commands");
+        var updates = _services.GetRequiredService<ISchedulerDashboardUpdates>();
+        void OnChanged(string schedulerName)
+        {
+            var run = updates.GetRecentExecutions(schedulerName)
+                .FirstOrDefault(run => run.JobName == key.Name && run.CompletedUtc is not null);
+            if (run is not null)
+                completed.TrySetResult(run);
+        }
+
+        await _queries.GetSchedulersAsync(_ct);
+        updates.Changed += OnChanged;
         await _scheduler.AddJob(JobBuilder.Create<BlockingJob>().WithIdentity(key).StoreDurably().Build(), new AddJobOptions(), _ct);
 
         try
         {
             await _commands.TriggerJobAsync(_scheduler.SchedulerName, key.Group, key.Name, _ct);
             await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.True(started.Task.IsCompletedSuccessfully);
+            var running = Assert.Single(updates.GetRecentExecutions(_scheduler.SchedulerName),
+                run => run.JobName == key.Name);
+            Assert.Null(running.CompletedUtc);
+            Assert.True(running.IsManualRun);
+            var manualTriggers = await _queries.GetTriggersAsync(_scheduler.SchedulerName, "run-", 0, _ct);
+            var manualTrigger = Assert.Single(manualTriggers.Items);
+            Assert.True(manualTrigger.IsManualRun);
+            Assert.Equal("QuartzSupervisor.ManualRuns", manualTrigger.Group);
+            Assert.Equal(key.Name, manualTrigger.JobName);
+
+            await Task.Delay(150);
+            release.TrySetResult();
+            var finished = await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(finished.IsManualRun);
+
+            Assert.Equal(running.Id, finished.Id);
+            Assert.True(finished.CompletedUtc > finished.StartedUtc);
+            Assert.True(finished.CompletedUtc - finished.StartedUtc >= TimeSpan.FromMilliseconds(100));
+            Assert.False(finished.IsError);
         }
         finally
         {
+            updates.Changed -= OnChanged;
             release.TrySetResult();
             BlockingJob.Started = null;
             BlockingJob.Release = null;

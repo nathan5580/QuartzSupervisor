@@ -15,8 +15,10 @@ public sealed record TriggerSummary(
     string JobName,
     string State,
     DateTimeOffset? NextFireTimeUtc,
-    DateTimeOffset? PreviousFireTimeUtc);
-
+    DateTimeOffset? PreviousFireTimeUtc)
+{
+    public bool IsManualRun { get; init; }
+}
 public sealed record DashboardOverview(SchedulerSummary Scheduler, int JobCount, int TriggerCount, IReadOnlyList<TriggerSummary> UpcomingTriggers);
 public sealed record DashboardPage<T>(IReadOnlyList<T> Items, bool HasMore, int Skip, int PageSize);
 
@@ -143,7 +145,10 @@ internal sealed class SchedulerDashboardQueries(
 
     private static TriggerSummary ToSummary(TriggerHeader trigger) =>
         new(trigger.Key.Group, trigger.Key.Name, trigger.JobKey.Group, trigger.JobKey.Name, trigger.State.ToString(),
-            trigger.NextFireTimeUtc, trigger.PreviousFireTimeUtc);
+            trigger.NextFireTimeUtc, trigger.PreviousFireTimeUtc)
+        {
+            IsManualRun = string.Equals(trigger.Key.Group, SchedulerDashboardCommands.ManualRunTriggerGroup, StringComparison.Ordinal)
+        };
 
 
 
@@ -163,16 +168,26 @@ internal sealed class SchedulerDashboardQueries(
 
 internal sealed class SchedulerDashboardCommands(ISchedulerFactory schedulerFactory) : ISchedulerDashboardCommands
 {
+    internal const string ManualRunTriggerGroup = "QuartzSupervisor.ManualRuns";
+
     public async Task StartSchedulerAsync(string schedulerName, CancellationToken ct) =>
         await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false)).Start(ct).ConfigureAwait(false);
 
     public async Task StandbySchedulerAsync(string schedulerName, CancellationToken ct) =>
         await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false)).Standby(ct).ConfigureAwait(false);
 
-    public async Task TriggerJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct) =>
-        await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
-            .TriggerJob(new JobKey(jobName, jobGroup), cancellationToken: ct).ConfigureAwait(false);
+    public async Task TriggerJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct)
+    {
+        var scheduler = await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false);
 
+        var trigger = TriggerBuilder.Create()
+            .WithIdentity($"run-{Guid.NewGuid():N}", ManualRunTriggerGroup)
+            .ForJob(new JobKey(jobName, jobGroup))
+            .StartNow()
+            .Build();
+
+        await scheduler.ScheduleJob(trigger, new ScheduleJobOptions(), ct).ConfigureAwait(false);
+    }
     public async Task PauseJobAsync(string schedulerName, string jobGroup, string jobName, CancellationToken ct) =>
         await (await GetSchedulerAsync(schedulerName, ct).ConfigureAwait(false))
             .PauseJob(new JobKey(jobName, jobGroup), ct).ConfigureAwait(false);

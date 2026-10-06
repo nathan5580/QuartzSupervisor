@@ -102,19 +102,42 @@
             }
             else
             {
-                <div class="table-scroll"><table class="upcoming-table">
+                <div class="table-scroll desktop-table"><table class="upcoming-table">
                     <caption class="sr-only">Upcoming triggers for @_overview.Scheduler.Name</caption>
                     <thead><tr><th scope="col">Trigger</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th></tr></thead>
                     <tbody>@foreach (var trigger in _overview.UpcomingTriggers)
                     {
                         <tr>
-                            <th scope="row"><span class="entity-name">@trigger.Name</span><span class="sub-cell">@trigger.Group</span></th>
+                            <th scope="row"><span class="entity-name">@(trigger.IsManualRun ? "Manual run" : trigger.Name)</span><span class="sub-cell">@(trigger.IsManualRun ? "One-shot" : trigger.Group)</span></th>
                             <td><span class="entity-name">@trigger.JobName</span><span class="sub-cell">@trigger.JobGroup</span></td>
                             <td><span class="state-badge" data-state="@trigger.State">@trigger.State</span></td>
                             <td class="time-cell">@trigger.NextFireTimeUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td>
                         </tr>
                     }</tbody>
                 </table></div>
+                <div class="mobile-records" role="list" aria-label="Upcoming triggers for @_overview.Scheduler.Name">
+                    @foreach (var trigger in _overview.UpcomingTriggers)
+                    {
+                        <article class="mobile-record" role="listitem">
+                            <header class="mobile-record-heading">
+                                <h3>@(trigger.IsManualRun ? "Manual run" : trigger.Name)</h3>
+                                @if (trigger.IsManualRun)
+                                {
+                                    <span class="manual-run-badge">One-shot</span>
+                                }
+                                else
+                                {
+                                    <span class="group-tag">Group · @trigger.Group</span>
+                                }
+                            </header>
+                            <p class="mobile-related-job">Job: @trigger.JobName <span class="sub-cell">(@trigger.JobGroup)</span></p>
+                            <dl class="mobile-facts">
+                                <div><dt>State</dt><dd><span class="state-badge" data-state="@trigger.State">@trigger.State</span></dd></div>
+                                <div><dt>Next fire (UTC)</dt><dd class="time-cell">@trigger.NextFireTimeUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</dd></div>
+                            </dl>
+                        </article>
+                    }
+                </div>
             }
         </section>
     }

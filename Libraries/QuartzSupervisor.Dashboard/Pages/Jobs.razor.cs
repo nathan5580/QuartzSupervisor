@@ -1,5 +1,5 @@
-using Microsoft.JSInterop;
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 using QuartzSupervisor.Integration;
 
 namespace QuartzSupervisor.Dashboard.Pages;
@@ -74,7 +74,7 @@ public partial class Jobs : IDisposable
 
     private Task TriggerJobAsync(JobSummary job) =>
         RunCommandAsync(ct => Commands.TriggerJobAsync(_selectedName, job.Group, job.Name, ct),
-            $"Queued '{job.Group}.{job.Name}' for immediate execution.");
+            $"Triggered {job.Group}.{job.Name}.");
 
     private Task PauseJobAsync(JobSummary job) =>
         RunCommandAsync(ct => Commands.PauseJobAsync(_selectedName, job.Group, job.Name, ct),

@@ -6,12 +6,19 @@ Requires the .NET 10 SDK. Tests use Quartz's in-memory store and ASP.NET Core's 
 
 ```sh
 dotnet restore QuartzSupervisor.slnx
+dotnet format QuartzSupervisor.slnx --verify-no-changes
 dotnet build QuartzSupervisor.slnx
 dotnet test QuartzSupervisor.slnx
 dotnet run --project Samples/Embedded/Embedded.csproj
 ```
 
 The sample permits anonymous dashboard access only in Development and binds to localhost there. Production access belongs behind the host application's authentication and authorization; do not copy the sample's Development exception into a public deployment.
+
+## Code conventions
+
+Use the existing two-library boundary: Quartz integration and dashboard UI stay separate, with the embedded host as a sample. Keep file-scoped namespaces, nullable reference types, warnings-as-errors, central package versions, and the existing `Async` suffix on asynchronous APIs. Separate logical stages in multi-step method bodies with blank lines. C# and Razor formatting is checked with `dotnet format QuartzSupervisor.slnx --verify-no-changes`.
+
+This is an embeddable library, not the template’s database-backed API and standalone Web application. Add layers only when a real boundary requires them.
 
 ## Issues and pull requests
 

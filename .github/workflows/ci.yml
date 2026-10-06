@@ -16,6 +16,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet restore QuartzSupervisor.slnx
+      - run: dotnet format QuartzSupervisor.slnx --verify-no-changes --no-restore
       - run: dotnet build QuartzSupervisor.slnx --configuration Release --no-restore
       - run: dotnet test QuartzSupervisor.slnx --configuration Release --no-build
       - run: dotnet pack Libraries/QuartzSupervisor.Integration/QuartzSupervisor.Integration.csproj --configuration Release --no-build --no-restore --output ./artifacts/packages

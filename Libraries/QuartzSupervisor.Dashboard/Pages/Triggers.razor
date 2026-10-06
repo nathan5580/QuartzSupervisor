@@ -62,25 +62,37 @@
             }
             else
             {
-                <div class="table-scroll"><table>
+                <div class="table-scroll desktop-table"><table>
                     <caption class="sr-only">Triggers for @_selectedName</caption>
                     <thead><tr><th scope="col">Actions</th><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th><th scope="col">Previous fire (UTC)</th></tr></thead>
                     <tbody>@foreach (var trigger in _page.Items)
                     {
                         <tr>
-                            <td><div class="row-actions">
-                                @if (trigger.State == "Paused")
+                            <td>
+                                @if (trigger.IsManualRun)
                                 {
-                                    <button class="button-secondary" type="button" @onclick="() => ResumeTriggerAsync(trigger)" aria-label="@($"Resume {trigger.Group}.{trigger.Name}")" disabled="@_acting">Resume</button>
+                                    <span class="sr-only">One-shot trigger has no trigger actions.</span>
                                 }
                                 else
                                 {
-                                    <button class="button-secondary" type="button" @onclick="() => PauseTriggerAsync(trigger)" aria-label="@($"Pause {trigger.Group}.{trigger.Name}")" disabled="@_acting">Pause</button>
+                                    <div class="row-actions">
+                                        @if (trigger.State == "Paused")
+                                        {
+                                            <button class="button-secondary" type="button" @onclick="() => ResumeTriggerAsync(trigger)" aria-label="@($"Resume {trigger.Group}.{trigger.Name}")" disabled="@_acting">Resume</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="button-secondary" type="button" @onclick="() => PauseTriggerAsync(trigger)" aria-label="@($"Pause {trigger.Group}.{trigger.Name}")" disabled="@_acting">Pause</button>
+                                        }
+                                        <button class="button-danger" type="button" @onclick="() => DeleteTriggerAsync(trigger)" aria-label="@($"Delete {trigger.Group}.{trigger.Name}")" disabled="@_acting">Delete</button>
+                                    </div>
                                 }
-                                <button class="button-danger" type="button" @onclick="() => DeleteTriggerAsync(trigger)" aria-label="@($"Delete {trigger.Group}.{trigger.Name}")" disabled="@_acting">Delete</button>
-                            </div></td>
-                            <th scope="row"><span class="entity-name">@trigger.Name</span></th>
-                            <td><span class="group-tag">@trigger.Group</span></td>
+                            </td>
+                            <th scope="row">
+                                <span class="entity-name">@(trigger.IsManualRun ? "Manual run" : trigger.Name)</span>
+                                @if (trigger.IsManualRun) { <span class="manual-run-badge">One-shot</span> }
+                            </th>
+                            <td><span class="group-tag">@(trigger.IsManualRun ? "Dashboard" : trigger.Group)</span></td>
                             <td><span class="entity-name">@trigger.JobName</span><span class="sub-cell">(@trigger.JobGroup)</span></td>
                             <td><span class="state-badge" data-state="@trigger.State">@trigger.State</span></td>
                             <td class="time-cell">@FormatTime(trigger.NextFireTimeUtc)</td>
@@ -88,6 +100,48 @@
                         </tr>
                     }</tbody>
                 </table></div>
+                <div class="mobile-records" role="list" aria-label="Triggers for @_selectedName">
+                    @foreach (var trigger in _page.Items)
+                    {
+                        <article class="mobile-record" role="listitem">
+                            <header class="mobile-record-heading">
+                                <h3>@(trigger.IsManualRun ? "Manual run" : trigger.Name)</h3>
+                                @if (trigger.IsManualRun)
+                                {
+                                    <span class="manual-run-badge">One-shot</span>
+                                }
+                                else
+                                {
+                                    <span class="group-tag">Group · @trigger.Group</span>
+                                }
+                            </header>
+                            <p class="mobile-related-job">Job: @trigger.JobName <span class="sub-cell">(@trigger.JobGroup)</span></p>
+                            <dl class="mobile-facts">
+                                <div><dt>State</dt><dd><span class="state-badge" data-state="@trigger.State">@trigger.State</span></dd></div>
+                                <div><dt>Next fire (UTC)</dt><dd>@FormatTime(trigger.NextFireTimeUtc)</dd></div>
+                                <div><dt>Previous fire (UTC)</dt><dd>@FormatTime(trigger.PreviousFireTimeUtc)</dd></div>
+                            </dl>
+                            @if (trigger.IsManualRun)
+                            {
+                                <p class="mobile-run-note">Temporary one-shot trigger from Run now; not a saved schedule.</p>
+                            }
+                            else
+                            {
+                                <div class="row-actions">
+                                    @if (trigger.State == "Paused")
+                                    {
+                                        <button class="button-secondary" type="button" @onclick="() => ResumeTriggerAsync(trigger)" aria-label="@($"Resume {trigger.Group}.{trigger.Name}")" disabled="@_acting">Resume</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="button-secondary" type="button" @onclick="() => PauseTriggerAsync(trigger)" aria-label="@($"Pause {trigger.Group}.{trigger.Name}")" disabled="@_acting">Pause</button>
+                                    }
+                                    <button class="button-danger" type="button" @onclick="() => DeleteTriggerAsync(trigger)" aria-label="@($"Delete {trigger.Group}.{trigger.Name}")" disabled="@_acting">Delete</button>
+                                </div>
+                            }
+                        </article>
+                    }
+                </div>
             }
             @if (_page.Skip > 0 || _page.HasMore)
             {

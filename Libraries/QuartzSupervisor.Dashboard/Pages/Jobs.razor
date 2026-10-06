@@ -62,17 +62,25 @@
             }
             else
             {
-                <div class="table-scroll"><table>
+                <div class="table-scroll desktop-table"><table>
                     <caption class="sr-only">Jobs for @_selectedName</caption>
                     <thead><tr><th scope="col">Actions</th><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Description</th><th scope="col">Durable</th><th scope="col">Recovery</th></tr></thead>
                     <tbody>@foreach (var job in _page.Items)
                     {
                         <tr>
                             <td><div class="row-actions">
-                                <button class="button-secondary" type="button" @onclick="() => TriggerJobAsync(job)" aria-label="@($"Run {job.Group}.{job.Name} now")" disabled="@_acting">Run now</button>
-                                <button class="button-secondary" type="button" @onclick="() => PauseJobAsync(job)" aria-label="@($"Pause {job.Group}.{job.Name}")" disabled="@_acting">Pause</button>
-                                <button class="button-secondary" type="button" @onclick="() => ResumeJobAsync(job)" aria-label="@($"Resume {job.Group}.{job.Name}")" disabled="@_acting">Resume</button>
-                                <button class="button-danger" type="button" @onclick="() => DeleteJobAsync(job)" aria-label="@($"Delete {job.Group}.{job.Name}")" disabled="@_acting">Delete</button>
+                                <button class="button-secondary button-icon" type="button" @onclick="() => TriggerJobAsync(job)" aria-label="@($"Run {job.Group}.{job.Name} now")" title="Run now" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                                </button>
+                                <button class="button-secondary button-icon" type="button" @onclick="() => PauseJobAsync(job)" aria-label="@($"Pause {job.Group}.{job.Name}")" title="Pause" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM15 5h3v14h-3z" /></svg>
+                                </button>
+                                <button class="button-secondary button-icon" type="button" @onclick="() => ResumeJobAsync(job)" aria-label="@($"Resume {job.Group}.{job.Name}")" title="Resume" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 7.8 9.8M20 4v6h-6" /><path d="M11 8v8l6-4z" /></svg>
+                                </button>
+                                <button class="button-danger button-icon" type="button" @onclick="() => DeleteJobAsync(job)" aria-label="@($"Delete {job.Group}.{job.Name}")" title="Delete" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 3v7m4-7v7" /></svg>
+                                </button>
                             </div></td>
                             <th scope="row"><span class="entity-name">@job.Name</span></th>
                             <td><span class="group-tag">@job.Group</span></td>
@@ -82,6 +90,36 @@
                         </tr>
                     }</tbody>
                 </table></div>
+                <div class="mobile-records" role="list" aria-label="Jobs for @_selectedName">
+                    @foreach (var job in _page.Items)
+                    {
+                        <article class="mobile-record" role="listitem">
+                            <header class="mobile-record-heading">
+                                <h3>@job.Name</h3>
+                                <span class="group-tag">Group · @job.Group</span>
+                            </header>
+                            <p class="mobile-description">@(job.Description ?? "No description")</p>
+                            <dl class="mobile-facts">
+                                <div><dt>Durable</dt><dd>@YesNo(job.Durable)</dd></div>
+                                <div><dt>Recovery</dt><dd>@YesNo(job.RequestsRecovery)</dd></div>
+                            </dl>
+                            <div class="row-actions">
+                                <button class="button-secondary button-icon" type="button" @onclick="() => TriggerJobAsync(job)" aria-label="@($"Run {job.Group}.{job.Name} now")" title="Run now" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                                </button>
+                                <button class="button-secondary button-icon" type="button" @onclick="() => PauseJobAsync(job)" aria-label="@($"Pause {job.Group}.{job.Name}")" title="Pause" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM15 5h3v14h-3z" /></svg>
+                                </button>
+                                <button class="button-secondary button-icon" type="button" @onclick="() => ResumeJobAsync(job)" aria-label="@($"Resume {job.Group}.{job.Name}")" title="Resume" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 7.8 9.8M20 4v6h-6" /><path d="M11 8v8l6-4z" /></svg>
+                                </button>
+                                <button class="button-danger button-icon" type="button" @onclick="() => DeleteJobAsync(job)" aria-label="@($"Delete {job.Group}.{job.Name}")" title="Delete" disabled="@_acting">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 3v7m4-7v7" /></svg>
+                                </button>
+                            </div>
+                        </article>
+                    }
+                </div>
             }
             @if (_page.Skip > 0 || _page.HasMore)
             {
