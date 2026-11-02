@@ -1,0 +1,70 @@
+@page "/scheduler"
+@using QuartzSupervisor.Integration
+<PageTitle>Scheduler · @Context.Title</PageTitle>
+<main class="page" id="main-content" tabindex="-1">
+    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="@Context.Url("", _scheduler)">Overview</a><span aria-hidden="true"> / </span><span>Scheduler</span></nav>
+    <header class="page-heading"><div><h1>Scheduler</h1><p class="page-description">Configuration, observable nodes, calendars, and administrative activity.</p></div><button class="button-secondary" @onclick="LoadAsync" disabled="@_loading">Refresh</button></header>
+    @if (_error is not null) { <p class="notice notice-error" role="alert">@_error</p> }
+    @if (_message is not null) { <p class="notice notice-success" role="status">@_message</p> }
+    @if (_loading) { <p role="status">Loading scheduler details…</p> }
+    else if (_details is null && _error is null) { <p class="empty-state">No scheduler is available to your account.</p> }
+    @if (_details is not null)
+    {
+        <section class="panel"><div class="panel-header"><h2>@_details.Summary.Name</h2><span class="status-badge" data-state="@_details.Summary.Status">@_details.Summary.Status</span></div>
+            <div class="panel-content">
+            <dl class="detail-grid"><div><dt>Instance</dt><dd class="mono">@_details.InstanceId</dd></div><div><dt>Quartz version</dt><dd>@_details.Version</dd></div><div><dt>Job store</dt><dd>@_details.StoreType</dd></div><div><dt>Persistence</dt><dd>@(_details.Persistent ? "Persistent store" : "In-memory store")</dd></div><div><dt>Clustering</dt><dd>@(_details.Clustered ? "Cluster configured" : "Not clustered")</dd></div><div><dt>Maximum concurrency</dt><dd>@_details.MaxConcurrency</dd></div><div><dt>Connection</dt><dd>@(_details.Capabilities.Remote ? "Remote scheduler" : "Embedded scheduler") · @_details.Capabilities.LiveMode</dd></div><div><dt>Your access</dt><dd>@(_details.Capabilities.CanAdminister ? "Administer" : _details.Capabilities.CanOperate ? "Operate" : "View only")</dd></div></dl>
+            <p class="help-text">@_details.Capabilities.HistoryDescription Snapshot @Time(_captured).</p>
+            @if (Updates.GetFreshness(_scheduler).Message is { } freshnessMessage) { <p class="notice">@freshnessMessage</p> }
+            </div>
+        </section>
+        <section class="table-panel"><div class="panel-header"><h2>Observable nodes</h2></div><p class="help-text">Only nodes exposed by the connected scheduler are listed. A cluster flag does not imply complete cluster visibility. Running jobs and cancellation can be node-local.</p>
+            @if (_details.Nodes.Count == 0) { <p class="empty-state">This scheduler did not expose node information.</p> }
+            else { <div class="table-scroll"><table><caption class="sr-only">Observable scheduler nodes</caption><thead><tr><th scope="col">Node</th><th scope="col">State</th><th scope="col">Last check-in</th></tr></thead><tbody>@foreach (var node in _details.Nodes) { <tr @key="node.InstanceId"><th scope="row">@node.InstanceId @(node.IsCurrentNode ? "(connected node)" : "")</th><td>@node.State</td><td>@Time(node.LastCheckInUtc)</td></tr> }</tbody></table></div> }
+        </section>
+        <section class="panel" aria-labelledby="calendars-heading"><div class="panel-header"><h2 id="calendars-heading">Calendars</h2>@if (_details.Capabilities.CanAdminister && _editor is null) { <button class="button-primary" @onclick="NewCalendar" disabled="@_acting">Create calendar</button> }</div><p class="help-text">Calendars exclude dates or weekdays from trigger schedules. Holiday and Weekly calendars are editable; other implementations remain read-only.</p>
+            @if (_calendars.Count == 0) { <p class="empty-state">No calendars registered.</p> }
+            @foreach (var calendar in _calendars)
+            {
+                <article class="panel-content" @key="calendar.Definition.Name"><div class="panel-header"><h3>@calendar.Definition.Name</h3><span>@calendar.Definition.Kind · @calendar.Definition.TimeZoneId</span></div><p>@calendar.Definition.Description</p>
+                    @if (calendar.Definition.Kind == "Holiday") { <p>Excluded dates: @(calendar.Definition.ExcludedDates.Count == 0 ? "None" : string.Join(", ", calendar.Definition.ExcludedDates))</p> }
+                    @if (calendar.Definition.Kind == "Weekly") { <p>Excluded weekdays: @(calendar.Definition.ExcludedDays.Count == 0 ? "None" : string.Join(", ", calendar.Definition.ExcludedDays))</p> }
+                    <details><summary>@calendar.AffectedTriggers.Count affected triggers</summary><ul class="detail-list">@foreach (var trigger in calendar.AffectedTriggers) { <li><a href="@TriggerUrl(trigger)">@trigger.Group / @trigger.Name</a> · @trigger.State · next @Time(trigger.NextFireTimeUtc)</li> }</ul></details>
+                    @if (!calendar.Editable) { <p class="help-text">This calendar implementation is read-only; its native configuration is preserved.</p> }
+                    else if (_details.Capabilities.CanAdminister) { <div class="row-actions"><button class="button-secondary" @onclick="() => EditCalendar(calendar)" disabled="@(_acting || _editor is not null)">Edit calendar</button><button class="button-danger" @onclick="() => DeleteAsync(calendar)" disabled="@(_acting || calendar.AffectedTriggers.Count > 0)">Delete calendar</button></div>@if (calendar.AffectedTriggers.Count > 0) { <p class="help-text">Remove calendar references from these triggers before deleting.</p> } }
+                </article>
+            }
+        </section>
+        @if (_editor is not null && _details.Capabilities.CanAdminister)
+        {
+            <section class="panel" aria-labelledby="calendar-editor-heading"><h2 id="calendar-editor-heading">@(_replace ? "Edit calendar" : "Create calendar")</h2>
+                @if (_formError is not null) { <p class="notice notice-error" role="alert">@_formError</p> }
+                <form @onsubmit="ReviewAsync" @onsubmit:preventDefault>
+                    <fieldset disabled="@_acting" class="form-grid" @oninput="InvalidateReview" @onchange="InvalidateReview"><legend>Calendar definition</legend>
+                        <div class="form-field"><label for="calendar-name">Name</label><input id="calendar-name" @bind="_editor.Name" maxlength="200" required readonly="@_replace" /></div>
+                        <div class="form-field"><label for="calendar-kind">Kind</label><select id="calendar-kind" @bind="_editor.Kind"><option value="Holiday">Holiday — excluded dates</option><option value="Weekly">Weekly — excluded weekdays</option></select></div>
+                        <div class="form-field"><label for="calendar-zone">Time zone ID</label><input id="calendar-zone" @bind="_editor.TimeZoneId" maxlength="200" required /><p class="help-text">Use a time zone available on the scheduler host, for example UTC or Europe/Luxembourg.</p></div>
+                        <div class="form-field"><label for="calendar-description">Description</label><input id="calendar-description" @bind="_editor.Description" maxlength="2000" /></div>
+                        @if (_editor.Kind == "Holiday") { <div class="form-field"><label for="calendar-dates">Excluded dates</label><textarea id="calendar-dates" rows="8" @bind="_dates" maxlength="44000" aria-describedby="calendar-date-help"></textarea><p class="help-text" id="calendar-date-help">One date per line, YYYY-MM-DD. Dates apply in the calendar's time zone.</p></div> }
+                        else { <fieldset><legend>Excluded weekdays</legend>@foreach (var day in Enum.GetValues<DayOfWeek>()) { <label class="check-field"><input type="checkbox" checked="@_editor.ExcludedDays.Contains(day)" @onchange="e => SetDay(day, e)" />@day</label> }</fieldset> }
+                    </fieldset>
+                    <div class="form-actions"><button class="button-secondary" type="submit" disabled="@_acting">Review trigger effects</button><button class="button-quiet" type="button" @onclick="() => _editor = null" disabled="@_acting">Cancel editing</button></div>
+                </form>
+                @if (_reviewed)
+                {
+                    <section class="panel"><h3>Review before saving</h3><p>@_affected.Count existing triggers reference this calendar. Saving recalculates their next fire times; running jobs are not stopped.</p>
+                        @if (_affected.Count > 0) { <div class="table-scroll"><table><caption>Calendar impact review</caption><thead><tr><th scope="col">Trigger</th><th scope="col">State</th><th scope="col">Current next fire</th><th scope="col">Proposed next fire</th></tr></thead><tbody>@foreach (var trigger in _affected) { <tr @key="(trigger.Group, trigger.Name)"><th scope="row"><a href="@TriggerUrl(trigger)">@trigger.Group / @trigger.Name</a></th><td>@trigger.State</td><td>@Time(trigger.NextFireTimeUtc)</td><td>@Time(_prospective.FirstOrDefault(t => t.Group == trigger.Group && t.Name == trigger.Name)?.NextFireTimeUtc)</td></tr> }</tbody></table></div> }
+                        <p class="help-text">Preview uses the native schedule and proposed calendar. No reported time means no eligible firing was found within the five-year preview horizon. Paused triggers remain paused. Fire times can change between preview and save.</p><button class="button-primary" @onclick="SaveAsync" disabled="@_acting">@(_replace ? "Save calendar" : "Create calendar")</button>
+                    </section>
+                }
+            </section>
+        }
+        @if (_details.Capabilities.CanAdminister)
+        {
+            <section class="table-panel" aria-labelledby="audit-heading"><div class="panel-header"><h2 id="audit-heading">Administrative activity</h2><span>@_audit.Count retained entries</span></div><p class="help-text">The latest 500 dashboard commands are retained process-wide across all schedulers; this view shows this scheduler's entries. Restart clears the buffer and oldest entries expire at capacity. This is not a complete Quartz or durable audit log. The host may configure a durable audit sink separately. Actions performed outside this dashboard are not included.</p>
+                @if (_auditError is not null) { <p class="notice notice-error" role="alert">Audit unavailable: @_auditError</p> }
+                else if (_audit.Count == 0) { <p class="empty-state">No retained administrative activity for this scheduler.</p> }
+                else { <div class="table-scroll"><table><caption class="sr-only">Recent dashboard administrative activity</caption><thead><tr><th scope="col">Time</th><th scope="col">Actor</th><th scope="col">Action / target</th><th scope="col">Result</th></tr></thead><tbody>@foreach (var entry in _audit) { <tr @key="entry.Id"><td>@Time(entry.TimestampUtc)</td><td>@entry.Actor</td><td>@entry.Action <span class="sub-cell">@entry.Target</span></td><td><span class="status-badge" data-state="@(entry.Succeeded ? "Completed" : "Failed")">@(entry.Succeeded ? "Succeeded" : "Failed")</span>@if (entry.Error is not null) { <span class="sub-cell">@entry.Error</span> }</td></tr> }</tbody></table></div> }
+            </section>
+        }
+    }
+</main>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>Quartz Supervisor</title>
+  <rect width="1024" height="1024" rx="160" fill="#26282D"/>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M512 164 814 338v348L512 860 210 686V338L512 164Zm0 130L322 404v216l190 110 190-110V404L512 294Z" fill="#F4F5F7"/>
+  <path d="m512 164 302 174v348l-112-66V404L512 294V164Z" fill="#B5BBC5"/>
+  <path d="m613 608 90-53 156 270-91 53-155-270Z" fill="#B5BBC5"/>
+</svg>

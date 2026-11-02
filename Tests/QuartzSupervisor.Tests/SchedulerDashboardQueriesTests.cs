@@ -27,7 +27,7 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
         });
         services.AddQuartz("zeta", quartz => quartz.UseInMemoryStore());
         services.AddQuartz("alpha", quartz => quartz.UseInMemoryStore());
-        services.AddQuartzSupervisorDashboard();
+        services.AddQuartzSupervisorIntegration();
         _services = services.BuildServiceProvider();
         _scheduler = await _services.GetRequiredService<ISchedulerFactory>().GetScheduler(_ct);
         await _scheduler.Start(_ct);
@@ -139,7 +139,7 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
         await _queries.GetSchedulersAsync(_ct);
         var updates = _services.GetRequiredService<ISchedulerDashboardUpdates>();
         var changed = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnChanged(string schedulerName) => changed.TrySetResult(schedulerName);
+        void OnChanged(string schedulerName) { if (schedulerName == _scheduler.SchedulerName) changed.TrySetResult(schedulerName); }
         updates.Changed += OnChanged;
 
         try
@@ -174,28 +174,16 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var completed = new TaskCompletionSource<DashboardExecution>(TaskCreationOptions.RunContinuationsAsynchronously);
         BlockingJob.Started = started;
         BlockingJob.Release = release;
         var key = new JobKey("manual", "commands");
-        var updates = _services.GetRequiredService<ISchedulerDashboardUpdates>();
-        void OnChanged(string schedulerName)
-        {
-            var run = updates.GetRecentExecutions(schedulerName)
-                .FirstOrDefault(run => run.JobName == key.Name && run.CompletedUtc is not null);
-            if (run is not null)
-                completed.TrySetResult(run);
-        }
-
-        await _queries.GetSchedulersAsync(_ct);
-        updates.Changed += OnChanged;
         await _scheduler.AddJob(JobBuilder.Create<BlockingJob>().WithIdentity(key).StoreDurably().Build(), new AddJobOptions(), _ct);
 
         try
         {
             await _commands.TriggerJobAsync(_scheduler.SchedulerName, key.Group, key.Name, _ct);
             await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var running = Assert.Single(updates.GetRecentExecutions(_scheduler.SchedulerName),
+            var running = Assert.Single(await _queries.GetRunningAsync(_scheduler.SchedulerName, _ct),
                 run => run.JobName == key.Name);
             Assert.Null(running.CompletedUtc);
             Assert.True(running.IsManualRun);
@@ -207,17 +195,28 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
 
             await Task.Delay(150);
             release.TrySetResult();
-            var finished = await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            DashboardExecution? finished = null;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (finished is null)
+            {
+                var history = await _queries.GetHistoryAsync(_scheduler.SchedulerName, new ExecutionFilter { JobGroup = key.Group, JobName = key.Name }, timeout.Token);
+                finished = history.Page.Items.FirstOrDefault();
+                if (finished is null) await Task.Delay(20, timeout.Token);
+            }
             Assert.True(finished.IsManualRun);
 
-            Assert.Equal(running.Id, finished.Id);
+            Assert.Equal(running.TriggerName, finished.TriggerName);
+            Assert.Equal(running.InstanceId, finished.InstanceId);
+            Assert.NotNull(running.FireInstanceId);
+            Assert.NotNull(finished.EntryId);
+            Assert.Equal(finished.Id, (await _queries.GetExecutionAsync(_scheduler.SchedulerName, finished.Id, _ct))?.Id);
+            Assert.Equal(finished.Id, (await _queries.GetExecutionAsync(_scheduler.SchedulerName, running.Id, _ct))?.Id);
             Assert.True(finished.CompletedUtc > finished.StartedUtc);
             Assert.True(finished.CompletedUtc - finished.StartedUtc >= TimeSpan.FromMilliseconds(100));
             Assert.False(finished.IsError);
         }
         finally
         {
-            updates.Changed -= OnChanged;
             release.TrySetResult();
             BlockingJob.Started = null;
             BlockingJob.Release = null;

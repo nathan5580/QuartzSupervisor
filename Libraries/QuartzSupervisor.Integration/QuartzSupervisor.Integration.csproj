@@ -10,5 +10,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Quartz" />
+    <PackageReference Include="Quartz.HttpClient" />
   </ItemGroup>
 </Project>

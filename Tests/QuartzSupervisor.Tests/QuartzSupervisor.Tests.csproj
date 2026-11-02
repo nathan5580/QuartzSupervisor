@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Quartz.AspNetCore" />
     <PackageReference Include="Quartz.HttpClient" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

@@ -1,12 +1,14 @@
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject QuartzSupervisor.Dashboard.Services.DashboardContext Dashboard
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <base href="/" />
-    <script src="_content/QuartzSupervisor/dashboard-theme.js"></script>
+    <base href="@(Dashboard.RootPath + "/")" />
+    <link rel="icon" type="image/svg+xml" href="@Dashboard.Asset("quartz-mark.svg")" />
+    <script src="@Dashboard.Asset("dashboard-theme.js")"></script>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
@@ -17,7 +19,7 @@
                 <svg viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0 1 20 0M5.5 12.3a10 10 0 0 1 13 0M9 15.8a5 5 0 0 1 6 0M12 20h.01" /></svg>
             </span>
             <div class="reconnect-copy">
-                <p class="reconnect-brand">Quartz Supervisor</p>
+                <p class="reconnect-brand">@Dashboard.Title</p>
                 <h2 id="reconnect-heading">Connection interrupted</h2>
                 <p class="reconnect-message components-reconnect-first-attempt-visible" role="status" aria-live="polite">Reconnecting to the server…</p>
                 <p class="reconnect-message components-reconnect-repeated-attempt-visible" role="status" aria-live="polite">Still offline. Retrying in <span id="components-seconds-to-next-attempt"></span>s.</p>
@@ -33,7 +35,7 @@
             </div>
         </div>
     </dialog>
-    <script src="_content/QuartzSupervisor/dashboard-reconnect.js"></script>
-    <script src="_framework/blazor.web.js"></script>
+    <script src="@Dashboard.Asset("dashboard-reconnect.js")"></script>
+    <script src="@Dashboard.FrameworkScript"></script>
 </body>
 </html>

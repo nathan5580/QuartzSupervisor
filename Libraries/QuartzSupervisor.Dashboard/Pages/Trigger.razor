@@ -1,0 +1,90 @@
+@page "/trigger"
+<PageTitle>@(Create ? "Create trigger" : Name ?? "Trigger") · @Context.Title</PageTitle>
+<main class="page" id="main-content" tabindex="-1">
+    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="@Context.Url("triggers")">Triggers</a><span aria-hidden="true"> / </span><span>@(Create ? "Create trigger" : Name ?? "Details")</span></nav>
+    <header class="page-heading"><div><h1>@(Create ? "Create trigger" : Name ?? "Trigger details")</h1><p class="page-description">@(Create ? "Build and preview a native Quartz schedule." : $"{Group ?? "DEFAULT"} · {Context.SchedulerName}")</p></div>
+        @if (_trigger is not null && !_editing && _admin && _trigger.Editable) { <button class="button-primary" @onclick="BeginEdit" disabled="@_acting">Edit schedule</button> }
+    </header>
+    @if (_loading) { <p class="text-muted" role="status">Refreshing trigger…</p> }
+    @if (_error is not null) { <p class="notice notice-error" role="alert">@_error <button class="button-quiet" @onclick="LoadAsync">Refresh</button></p> }
+    @if (_message is not null) { <p class="notice notice-success" role="status">@_message</p> }
+    @if (Create && !_admin && !_loading) { <p class="notice">Creating triggers requires administrator permission.</p> }
+    @if (_trigger is not null)
+    {
+        <section class="panel panel-content" aria-labelledby="trigger-state-heading"><div class="panel-header"><h2 id="trigger-state-heading">Schedule state</h2><span class="status-badge" data-state="@_trigger.Summary.State">@_trigger.Summary.State</span></div>
+            <p>@_trigger.ScheduleDescription</p><dl class="detail-grid">
+                <div><dt>Job</dt><dd><a class="entity-link" href="@EntityUrl("job", _trigger.Summary.JobGroup, _trigger.Summary.JobName)">@_trigger.Summary.JobGroup / @_trigger.Summary.JobName</a></dd></div>
+                <div><dt>Next fire</dt><dd>@Time(_trigger.Summary.NextFireTimeUtc)</dd></div><div><dt>Previous fire</dt><dd>@Time(_trigger.Summary.PreviousFireTimeUtc)</dd></div>
+            </dl>
+            @if (_operate && !_trigger.Summary.IsManualRun)
+            {
+                <div class="row-actions">
+                    @if (_trigger.Summary.State is "Normal" or "Executing" or "Blocked" or "Paused") { <button class="button-secondary" disabled="@_acting" @onclick="PauseResumeAsync">@(_trigger.Summary.State == "Paused" ? "Resume" : "Pause")</button> }
+                    @if (_trigger.Summary.State == "Error") { <p class="help-text">Inspect the job's last failure before resetting. Resetting makes this trigger eligible for scheduling again.</p><button class="button-secondary" disabled="@_acting" @onclick="ResetAsync">Reset error state</button> }
+                </div>
+            }
+            @if (!_trigger.Editable) { <p class="notice">This native trigger configuration cannot be safely edited here. Manage it in the host to preserve its unsupported options.</p> }
+        </section>
+    }
+    @if (_editing && _admin)
+    {
+        <section class="panel panel-content" aria-labelledby="trigger-edit-heading"><h2 id="trigger-edit-heading">@(Create ? "New schedule" : "Edit schedule")</h2>
+            @if (!Create && _before?.Revision != _trigger?.Definition.Revision) { <p class="notice" role="status">This trigger changed since editing began. Your draft has not been replaced. Cancel and reopen the editor to use the latest revision.</p> }
+            <form @onsubmit="PreviewAsync" @onsubmit:preventDefault="true">
+                <fieldset disabled="@(_acting || _review is not null)"><legend>Schedule configuration</legend><div class="form-grid">
+                    <div class="form-field"><label for="trigger-name">Trigger name</label><input id="trigger-name" @bind="_draft.Name" required maxlength="200" readonly="@(!Create)" /></div>
+                    <div class="form-field"><label for="trigger-group">Trigger group</label><input id="trigger-group" @bind="_draft.Group" required maxlength="200" readonly="@(!Create)" /></div>
+                    <div class="form-field"><label for="trigger-job-name">Job name</label><input id="trigger-job-name" @bind="_draft.JobName" required maxlength="200" readonly="@(!Create)" /></div>
+                    <div class="form-field"><label for="trigger-job-group">Job group</label><input id="trigger-job-group" @bind="_draft.JobGroup" required maxlength="200" readonly="@(!Create)" /><span class="help-text">Use the exact identity of an existing job. <a href="@Context.Url("jobs")">Browse jobs</a>.</span></div>
+                    <div class="form-field"><label for="trigger-description">Description</label><textarea id="trigger-description" @bind="_draft.Description" maxlength="2000"></textarea></div>
+                    <div class="form-field"><label for="trigger-kind">Schedule type</label><select id="trigger-kind" @bind="_draft.Kind" @bind:after="KindChanged"><option value="Once">Once</option><option value="Simple">Simple interval</option><option value="Cron">Cron</option></select></div>
+                    @if (_draft.Kind == "Cron")
+                    {
+                        <div class="form-field"><label for="trigger-cron">Quartz cron expression</label><input id="trigger-cron" class="mono" @bind="_draft.CronExpression" required maxlength="200" aria-describedby="cron-help" /><span id="cron-help" class="help-text">Includes seconds. Example: 0 0 9 ? * MON-FRI runs weekdays at 09:00 in the selected zone.</span></div>
+                        <div class="form-field"><label for="trigger-zone">Time zone</label><input id="trigger-zone" @bind="_draft.TimeZoneId" list="trigger-timezones" required /><datalist id="trigger-timezones">@foreach (var zone in _timeZones) { <option value="@zone"></option> }</datalist><span class="help-text">Calendar time follows this zone, including daylight-saving transitions.</span></div>
+                    }
+                    @if (_draft.Kind == "Simple")
+                    {
+                        <div class="form-field"><label for="trigger-interval">Interval (seconds)</label><input id="trigger-interval" type="number" @bind="_draft.IntervalSeconds" min="0.001" step="any" required /></div>
+                        <div class="form-field"><label for="trigger-repeat">Repeat count</label><input id="trigger-repeat" type="number" @bind="_draft.RepeatCount" min="-1" step="1" required /><span class="help-text">-1 repeats forever; 0 fires once; 1 fires twice. Interval uses elapsed time, not local wall-clock time.</span></div>
+                    }
+                    <div class="form-field"><label for="trigger-start">Start (UTC)</label><input id="trigger-start" type="datetime-local" @bind="_start" @bind:format="yyyy-MM-ddTHH:mm" /><span class="help-text">Blank starts at preview time. Once schedules fire at this instant, subject to misfire policy.</span></div>
+                    <div class="form-field"><label for="trigger-end">End (UTC, optional)</label><input id="trigger-end" type="datetime-local" @bind="_end" @bind:format="yyyy-MM-ddTHH:mm" /><span class="help-text">No executions will be scheduled after this instant.</span></div>
+                    <div class="form-field"><label for="trigger-priority">Priority</label><input id="trigger-priority" type="number" @bind="_draft.Priority" min="1" step="1" required /><span class="help-text">Higher values are preferred when fire times are equal. Default: 5.</span></div>
+                    <div class="form-field"><label for="trigger-calendar">Exclusion calendar</label><select id="trigger-calendar" @bind="_draft.CalendarName"><option value="">None</option>@foreach (var calendar in _calendars) { <option value="@calendar.Definition.Name">@calendar.Definition.Name</option> }</select><span class="help-text">The preview applies this scheduler's calendar exclusions.</span></div>
+                    <div class="form-field"><label for="trigger-misfire">Misfire policy</label><select id="trigger-misfire" @bind="_draft.Misfire">@foreach (var policy in Misfires) { <option value="@policy">@policy</option> }</select><span class="help-text">Controls missed fire times after downtime or capacity delays. SmartPolicy uses Quartz defaults.</span></div>
+                </div><div class="form-actions"><button class="button-primary" type="submit">@(_acting ? "Previewing…" : "Preview next 10 and review")</button></div></fieldset>
+            </form>
+            @if (_review is not null)
+            {
+                var beforeFields = _before is null ? null : Configuration(_before);
+                <section aria-labelledby="trigger-review-heading"><h3 id="trigger-review-heading">Review @(!Create ? "changes" : "new trigger")</h3>
+                    <div class="table-scroll" tabindex="0" role="region" aria-label="Schedule review"><table><thead><tr><th scope="col">Setting</th>@if (_before is not null) { <th scope="col">Before</th> }<th scope="col">After</th></tr></thead><tbody>
+                        @foreach (var field in Configuration(_review)) { <tr><th scope="row">@field.Label</th>@if (beforeFields is not null) { <td>@beforeFields.First(x => x.Label == field.Label).Value</td> }<td>@field.Value</td></tr> }
+                    </tbody></table></div>
+                    <h3>Next fire times (UTC)</h3><p class="help-text">Calculated on the server by Quartz with the selected timezone and calendar. These are schedule projections, not guaranteed executions.</p>
+                    @if (_preview.Count == 0) { <p class="notice">No future fire times. Check the start/end dates, cron expression, and exclusions before saving.</p> }
+                    else { <ol class="fire-time-list">@foreach (var time in _preview) { <li>@Time(time)</li> }</ol> }
+                    <div class="form-actions"><button class="button-primary" disabled="@_acting" @onclick="SaveAsync">@(_acting ? "Saving…" : Create ? "Create trigger" : "Save reviewed changes")</button><button class="button-secondary" disabled="@_acting" @onclick="() => _review = null">Back to editing</button></div>
+                </section>
+            }
+            <div class="form-actions">@if (Create) { <a class="button-quiet" href="@Context.Url("triggers")">Cancel</a> } else { <button class="button-quiet" disabled="@_acting" @onclick="CancelEdit">Cancel editing</button> }</div>
+        </section>
+    }
+    @if (_trigger is not null)
+    {
+        <details class="panel panel-content"><summary>Current configuration</summary><dl class="detail-grid">@foreach (var field in Configuration(_trigger.Definition)) { <div><dt>@field.Label</dt><dd>@field.Value</dd></div> }</dl></details>
+        <section class="panel panel-content" aria-labelledby="trigger-forecast-heading"><h2 id="trigger-forecast-heading">Upcoming schedule</h2><p class="help-text">UTC projections, not guaranteed runs. Paused and excluded times are respected.</p>@if (_trigger.NextFireTimes.Count == 0) { <p class="text-muted">No future fire times reported.</p> } else { <ol class="fire-time-list">@foreach (var time in _trigger.NextFireTimes) { <li>@Time(time)</li> }</ol> }</section>
+        <section class="panel panel-content" aria-labelledby="trigger-running-heading"><h2 id="trigger-running-heading">Running executions</h2>@if (_running.Count == 0) { <p class="text-muted">No running executions reported for this trigger.</p> } else { <ul class="detail-list">@foreach (var execution in _running) { <li @key="execution.Id"><a class="entity-link" href="@ExecutionUrl(execution)">Started @Time(execution.StartedUtc)</a> · @execution.InstanceId</li> }</ul> }</section>
+        <section class="panel panel-content" aria-labelledby="trigger-history-heading"><h2 id="trigger-history-heading">Native execution history</h2>
+            @if (_history is not null)
+            {
+                <p class="help-text">@_history.Description</p>@if (_history.Message is not null) { <p class="notice">@_history.Message</p> }
+                @if (_history.Available && _history.Page.Items.Count == 0) { <p class="text-muted">No recorded executions for this trigger on this page.</p> }
+                @if (_history.Page.Items.Count > 0) { <div class="table-scroll" tabindex="0" role="region" aria-label="Trigger execution history"><table><thead><tr><th scope="col">Started (UTC)</th><th scope="col">Result</th><th scope="col">Completed (UTC)</th><th scope="col">Node</th></tr></thead><tbody>@foreach (var execution in _history.Page.Items) { <tr @key="execution.Id"><th scope="row"><a class="entity-link" href="@ExecutionUrl(execution)">@Time(execution.StartedUtc)</a></th><td>@(execution.IsError ? "Failed" : execution.CompletedUtc is null ? "Running" : "Completed")</td><td>@Time(execution.CompletedUtc)</td><td>@execution.InstanceId</td></tr> }</tbody></table></div> }
+                <nav class="pager" aria-label="Trigger history pages">@if (_history.Page.Skip > 0) { <a class="button-secondary" href="@HistoryUrl(Math.Max(0, _history.Page.Skip - _history.Page.PageSize))">Previous results</a> }@if (_history.Page.HasMore) { <a class="button-secondary" href="@HistoryUrl(_history.Page.Skip + _history.Page.PageSize)">More results</a> }</nav>
+            }
+        </section>
+        @if (_admin && !_trigger.Summary.IsManualRun) { <details class="panel panel-content"><summary>Destructive actions</summary><p>Deleting the last trigger can also delete its non-durable job. Existing executions are not cancelled.</p><button class="button-danger" disabled="@_acting" @onclick="DeleteAsync">Delete trigger…</button></details> }
+    }
+</main>

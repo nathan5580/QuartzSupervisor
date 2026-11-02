@@ -1,0 +1,33 @@
+@foreach (var parameter in Schema)
+{
+    var id = $"{Prefix}-{parameter.Name}";
+    <div class="form-field" @key="parameter.Name">
+        <label for="@id">@parameter.Label @(parameter.Required ? "(required)" : "(optional)")</label>
+        @if (parameter.Type == "bool" && !parameter.Sensitive)
+        {
+            <select id="@id" value="@Value(parameter.Name)" @onchange="e => Set(parameter.Name, e)" required="@(parameter.Required && !AllowStoredValues)">
+                <option value="">@(AllowStoredValues ? "Use stored value" : "Choose a value")</option><option value="true">True</option><option value="false">False</option>
+            </select>
+        }
+        else
+        {
+            <input id="@id" type="@(parameter.Sensitive ? "password" : parameter.Type is "int" or "long" or "decimal" ? "number" : "text")"
+                   value="@Value(parameter.Name)" @onchange="e => Set(parameter.Name, e)" required="@(parameter.Required && !AllowStoredValues)" maxlength="4096"
+                   step="@(parameter.Type == "decimal" ? "any" : "1")" autocomplete="off" />
+        }
+        @if (parameter.Sensitive) { <span class="help-text">Sensitive. Stored values are never displayed.@(AllowStoredValues ? " Leave blank to keep the stored value." : "")</span> }
+        else if (AllowStoredValues) { <span class="help-text">Leave blank to use the stored value. Type: @parameter.Type.</span> }
+    </div>
+}
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DashboardParameter> Schema { get; set; } = [];
+    [Parameter, EditorRequired] public Dictionary<string, string> Values { get; set; } = [];
+    [Parameter] public string Prefix { get; set; } = "parameter";
+    [Parameter] public bool AllowStoredValues { get; set; }
+    private string Value(string name) => Values.GetValueOrDefault(name, "");
+    private void Set(string name, ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString() ?? "";
+        if (value.Length == 0) Values.Remove(name); else Values[name] = value;
+    }
+}

@@ -2,14 +2,14 @@
 
 ## Local workflow
 
-Requires the .NET 10 SDK. Tests use Quartz's in-memory store and ASP.NET Core's test host; no external database or credentials are needed.
+Requires the .NET 10 SDK. Tests use Quartz's in-memory store, a disposable native SQLite store, and authenticated ASP.NET Core test servers. No external database or credentials are needed.
 
 ```sh
 dotnet restore QuartzSupervisor.slnx
 dotnet format QuartzSupervisor.slnx --verify-no-changes
 dotnet build QuartzSupervisor.slnx
 dotnet test QuartzSupervisor.slnx
-dotnet run --project Samples/Embedded/Embedded.csproj
+dotnet run --project Samples/Embedded/Embedded.csproj --no-launch-profile -- --environment Development --urls http://127.0.0.1:5000
 ```
 
 The sample permits anonymous dashboard access only in Development and binds to localhost there. Production access belongs behind the host application's authentication and authorization; do not copy the sample's Development exception into a public deployment.
@@ -19,6 +19,10 @@ The sample permits anonymous dashboard access only in Development and binds to l
 Use the existing two-library boundary: Quartz integration and dashboard UI stay separate, with the embedded host as a sample. Keep file-scoped namespaces, nullable reference types, warnings-as-errors, central package versions, and the existing `Async` suffix on asynchronous APIs. Separate logical stages in multi-step method bodies with blank lines. C# and Razor formatting is checked with `dotnet format QuartzSupervisor.slnx --verify-no-changes`.
 
 This is an embeddable library, not the template’s database-backed API and standalone Web application. Add layers only when a real boundary requires them.
+
+Before changing hosting or UI, exercise default and custom routes, a proxy PathBase, and a host with its own Razor component app. Verify anonymous opt-in, viewer/operator/administrator policies, and server-side read-only enforcement. Use the harmless sample to create a catalog job, run it with parameters, follow completion/cancellation, preview and edit a trigger, apply calendar exclusions, and inspect bulk outcomes. Check desktop/mobile, both themes, keyboard focus, chart/list switching, and reduced motion.
+
+For packaging changes, pack both libraries and run a clean host referencing the resulting NuGet packages, not project references. Verify CSS, JavaScript, icon, circuit connection, and coexistence with host routes. Keep native-history restart and remote HTTP/SSE scenarios in the behavioral test suite.
 
 ## Issues and pull requests
 

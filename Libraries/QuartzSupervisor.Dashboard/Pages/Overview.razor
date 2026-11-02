@@ -1,144 +1,44 @@
-@page "/quartz-supervisor"
-@page "/quartz-supervisor/overview"
-@using QuartzSupervisor.Integration
-<PageTitle>Overview · Quartz Supervisor</PageTitle>
-
+@page "/"
+@page "/overview"
+<PageTitle>Overview · @Context.Title</PageTitle>
 <main class="page" id="main-content" tabindex="-1">
-    <header class="page-heading">
-        <div>
-            <h1>Overview</h1>
-            <p class="page-description">A live snapshot of scheduler health and upcoming work.</p>
-        </div>
-        @if (_schedulers.Count > 0)
-        {
-            <div class="scheduler-context">
-                <label for="scheduler-select">Scheduler</label>
-                <select id="scheduler-select" class="field" @bind="_selectedName" @bind:after="LoadOverviewAsync">
-                    @foreach (var scheduler in _schedulers)
-                    {
-                        <option value="@scheduler.Name">@(scheduler.Status == "Unavailable" ? $"{scheduler.Name} (Unavailable)" : scheduler.Name)</option>
-                    }
-                </select>
+    <header class="page-heading"><div><h1>Overview</h1><p class="page-description">Scheduler health, work in progress, and what needs attention.</p></div><a class="button-secondary" href="@Context.Url("scheduler", _scheduler)">Scheduler details</a></header>
+    @if (_error is not null) { <p class="notice notice-error" role="alert">@_error <button class="button-quiet" @onclick="LoadAsync">Retry</button></p> }
+    @if (_message is not null) { <p class="notice notice-success" role="status">@_message</p> }
+    @if (_loading) { <p role="status">Loading scheduler health…</p> }
+    else if (_overview is null && _error is null) { <div class="empty-state"><h2>No scheduler connected</h2><p>No schedulers are available to your account.</p></div> }
+    @if (_overview is not null && _details is not null)
+    {
+        <section class="panel" aria-labelledby="health-heading">
+            <div class="panel-header"><div><h2 id="health-heading">@_scheduler</h2><span class="status-badge" data-state="@_overview.Scheduler.Status">@_overview.Scheduler.Status</span></div>
+                @if (_details.Capabilities.CanOperate && _overview.Scheduler.Status is "Running" or "Standby" or "Created")
+                { <button class="button-primary" disabled="@_acting" @onclick="ChangeStatusAsync">@(_overview.Scheduler.Status == "Running" ? "Standby scheduler" : "Start scheduler")</button> }
             </div>
-        }
-    </header>
-
-    @if (_loading)
-    {
-        <p class="state-panel" role="status"><span class="loading-dot"></span>Loading scheduler information…</p>
-    }
-    else if (_error is not null)
-    {
-        <p class="notice" role="alert">@_error</p>
-    }
-    else if (_schedulers.Count == 0)
-    {
-        <div class="empty-panel">
-            <h2>No scheduler connected</h2>
-            <p>Register a Quartz scheduler with this host to see its live status, jobs, and upcoming triggers.</p>
-        </div>
-    }
-    else if (_overview is not null)
-    {
-        <section class="overview-summary" aria-label="Scheduler summary">
-            <div class="summary-scheduler">
-                <span class="summary-label">Scheduler</span>
-                <strong>@_overview.Scheduler.Name</strong>
-                <span class="health-status" data-status="@_overview.Scheduler.Status"><span class="health-dot"></span>@StatusLabel(_overview.Scheduler.Status)</span>
-            </div>
-            <a class="summary-metric" href="/quartz-supervisor/jobs">
-                <span class="summary-label">Jobs</span>
-                <strong>@_overview.JobCount</strong>
-                <span class="summary-link">Browse jobs <span aria-hidden="true">→</span></span>
-            </a>
-            <a class="summary-metric" href="/quartz-supervisor/triggers">
-                <span class="summary-label">Triggers</span>
-                <strong>@_overview.TriggerCount</strong>
-                <span class="summary-link">Browse triggers <span aria-hidden="true">→</span></span>
-            </a>
+            <p class="help-text">@_details.InstanceId · @Updates.GetFreshness(_scheduler).Mode · Updated @Time(_captured)</p>
+            @if (Updates.GetFreshness(_scheduler).Message is { } freshnessMessage) { <p class="notice">@freshnessMessage</p> }
+            <div class="metric-strip"><a class="metric" href="@Context.Url("jobs", _scheduler)"><strong>@_overview.JobCount</strong> jobs</a><a class="metric" href="@Context.Url("triggers", _scheduler)"><strong>@_overview.TriggerCount</strong> triggers</a><a class="metric" href="@Context.Url("timeline", _scheduler)"><strong>@_running.Count</strong> running in this snapshot</a></div>
         </section>
-
-        <section class="scheduler-controls" aria-label="Scheduler controls">
-            <div>
-                <h2>Scheduler controls</h2>
-                <p>Standby pauses future trigger firings; running jobs continue. Starting resumes scheduling.</p>
-            </div>
-            @if (_overview.Scheduler.Status == "Running")
-            {
-                <button class="button-secondary" type="button" @onclick="StandbySchedulerAsync" disabled="@_acting">Standby scheduler</button>
-            }
-            else if (_overview.Scheduler.Status is "Created" or "Standby")
-            {
-                <button class="button-primary" type="button" @onclick="StartSchedulerAsync" disabled="@_acting">Start scheduler</button>
-            }
-            else
-            {
-                <span class="boolean-tag">Scheduler controls unavailable</span>
+        <section class="table-panel" aria-labelledby="running-heading"><div class="panel-header"><h2 id="running-heading">Running now</h2><a href="@Context.Url("timeline", _scheduler)">Open timeline</a></div>
+            @if (_running.Count == 0) { <p class="empty-state">No running executions reported in this scheduler's observable scope.</p> }
+            else { <div class="table-scroll"><table class="record-table" role="table"><caption class="sr-only">Current executions</caption><thead><tr><th scope="col">Job</th><th scope="col">Started</th><th scope="col">Node</th><th scope="col">Progress</th></tr></thead><tbody>
+                @foreach (var run in _running) { <tr @key="run.Id"><th scope="row"><a class="entity-link" href="@RunUrl(run)">@run.JobGroup / @run.JobName</a></th><td data-label="Started">@Time(run.StartedUtc)</td><td data-label="Node">@run.InstanceId</td><td data-label="Progress">@(run.Progress is { } progress ? $"{progress}%" : "Not reported") @run.ProgressMessage</td></tr> }
+            </tbody></table></div> }
+        </section>
+        <section class="table-panel" aria-labelledby="failures-heading"><div class="panel-header"><h2 id="failures-heading">Recent failures</h2><span>Last 24 hours · retained native history</span></div>
+            @if (_failures?.Message is { } historyMessage) { <p class="notice">@historyMessage</p> }
+            @if (_failures?.Available != true) { <p class="empty-state">Execution history is unavailable. No conclusion about recent failures can be drawn.</p> }
+            else if (_failures.Page.Items.Count == 0) { <p class="empty-state">No failures found in the available history for this period.</p> }
+            else { <div class="table-scroll"><table class="record-table" role="table"><caption class="sr-only">Recent failed executions</caption><thead><tr><th scope="col">Job</th><th scope="col">Started</th><th scope="col">Outcome</th></tr></thead><tbody>
+                @foreach (var run in _failures.Page.Items) { <tr @key="run.Id"><th scope="row"><a class="entity-link" href="@RunUrl(run)">@run.JobGroup / @run.JobName</a></th><td data-label="Started">@Time(run.StartedUtc)</td><td data-label="Outcome"><span class="status-badge" data-state="Failed">Failed</span></td></tr> }
+            </tbody></table></div>
+                @if (_failures.Page.HasMore) { <p class="help-text">Only the first page is shown. Open the timeline to inspect a narrower period.</p> }
             }
         </section>
-        @if (_actionMessage is not null)
-        {
-            <p class="notice notice-success" role="status">@_actionMessage</p>
-        }
-        @if (_actionError is not null)
-        {
-            <p class="notice" role="alert">@_actionError</p>
-        }
-
-        <section class="table-panel upcoming-panel" aria-labelledby="upcoming-heading">
-            <div class="upcoming-heading">
-                <div>
-                    <h2 id="upcoming-heading">Upcoming triggers</h2>
-                    <p class="panel-description">Next fire times · UTC</p>
-                </div>
-                <span class="panel-count">@_overview.UpcomingTriggers.Count shown</span>
-            </div>
-            @if (_overview.UpcomingTriggers.Count == 0)
-            {
-                <div class="empty-state">
-                    <h3>No upcoming fire times</h3>
-                    <p>Quartz has no next-fire time available for this scheduler right now.</p>
-                </div>
-            }
-            else
-            {
-                <div class="table-scroll desktop-table"><table class="upcoming-table">
-                    <caption class="sr-only">Upcoming triggers for @_overview.Scheduler.Name</caption>
-                    <thead><tr><th scope="col">Trigger</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th></tr></thead>
-                    <tbody>@foreach (var trigger in _overview.UpcomingTriggers)
-                    {
-                        <tr>
-                            <th scope="row"><span class="entity-name">@(trigger.IsManualRun ? "Manual run" : trigger.Name)</span><span class="sub-cell">@(trigger.IsManualRun ? "One-shot" : trigger.Group)</span></th>
-                            <td><span class="entity-name">@trigger.JobName</span><span class="sub-cell">@trigger.JobGroup</span></td>
-                            <td><span class="state-badge" data-state="@trigger.State">@trigger.State</span></td>
-                            <td class="time-cell">@trigger.NextFireTimeUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</td>
-                        </tr>
-                    }</tbody>
-                </table></div>
-                <div class="mobile-records" role="list" aria-label="Upcoming triggers for @_overview.Scheduler.Name">
-                    @foreach (var trigger in _overview.UpcomingTriggers)
-                    {
-                        <article class="mobile-record" role="listitem">
-                            <header class="mobile-record-heading">
-                                <h3>@(trigger.IsManualRun ? "Manual run" : trigger.Name)</h3>
-                                @if (trigger.IsManualRun)
-                                {
-                                    <span class="manual-run-badge">One-shot</span>
-                                }
-                                else
-                                {
-                                    <span class="group-tag">Group · @trigger.Group</span>
-                                }
-                            </header>
-                            <p class="mobile-related-job">Job: @trigger.JobName <span class="sub-cell">(@trigger.JobGroup)</span></p>
-                            <dl class="mobile-facts">
-                                <div><dt>State</dt><dd><span class="state-badge" data-state="@trigger.State">@trigger.State</span></dd></div>
-                                <div><dt>Next fire (UTC)</dt><dd class="time-cell">@trigger.NextFireTimeUtc?.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</dd></div>
-                            </dl>
-                        </article>
-                    }
-                </div>
-            }
+        <section class="table-panel" aria-labelledby="upcoming-heading"><div class="panel-header"><h2 id="upcoming-heading">Upcoming work</h2><span>@_overview.UpcomingTriggers.Count next fire times</span></div><p class="help-text">Quartz next-fire times are scheduling estimates, not guaranteed executions. Check each trigger's state.</p>
+            @if (_overview.UpcomingTriggers.Count == 0) { <p class="empty-state">No upcoming fire times reported.</p> }
+            else { <div class="table-scroll"><table class="record-table" role="table"><caption class="sr-only">Upcoming trigger firings</caption><thead><tr><th scope="col">Trigger</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire</th></tr></thead><tbody>
+                @foreach (var trigger in _overview.UpcomingTriggers) { <tr @key="(trigger.Group, trigger.Name)"><th scope="row"><a class="entity-link" href="@EntityUrl("trigger", trigger.Group, trigger.Name)">@trigger.Group / @trigger.Name</a></th><td data-label="Job"><a href="@EntityUrl("job", trigger.JobGroup, trigger.JobName)">@trigger.JobName</a></td><td data-label="State"><span class="status-badge" data-state="@trigger.State">@trigger.State</span></td><td data-label="Next fire">@Time(trigger.NextFireTimeUtc)</td></tr> }
+            </tbody></table></div> }
         </section>
     }
 </main>

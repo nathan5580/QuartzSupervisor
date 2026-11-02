@@ -1,158 +1,54 @@
-@page "/quartz-supervisor/triggers"
-<PageTitle>Triggers · Quartz Supervisor</PageTitle>
-
+@page "/triggers"
+<PageTitle>Triggers · @Context.Title</PageTitle>
 <main class="page" id="main-content" tabindex="-1">
-    <header class="page-heading">
-        <div>
-            <h1>Triggers</h1>
-            <p class="page-description">Live, searchable view of trigger state and upcoming fire times.</p>
-        </div>
+    <header class="page-heading"><div><h1>Triggers</h1><p class="page-description">Schedules, next fire times, and operational state on @Context.SchedulerName.</p></div>
+        @if (_admin) { <a class="button-primary" href="@Context.Url("trigger", query: new Dictionary<string, string?> { ["create"] = "true" })">Create trigger</a> }
     </header>
-
-    @if (_loading)
+    <form class="toolbar" @onsubmit="SearchTriggers" @onsubmit:preventDefault="true">
+        <div class="form-field"><label for="triggers-search">Search</label><input id="triggers-search" type="search" @bind="_search" placeholder="Trigger name" /></div>
+        <div class="form-field"><label for="triggers-group">Group</label><input id="triggers-group" @bind="_group" placeholder="All groups" /></div>
+        <div class="form-field"><label for="triggers-state">State</label><select id="triggers-state" @bind="_state"><option value="">All states</option>@foreach (var state in new[] { "Normal", "Executing", "Paused", "Blocked", "Awaiting", "Error", "Complete", "None" }) { <option>@state</option> }</select></div>
+        <button class="button-secondary" type="submit">Apply filters</button><a class="button-quiet" href="@Context.Url("triggers")">Clear</a>
+    </form>
+    @if (_loading) { <p role="status" class="text-muted">Refreshing triggers…</p> }
+    @if (_error is not null) { <p class="notice notice-error" role="alert">@_error <button class="button-quiet" @onclick="LoadAsync">Retry</button></p> }
+    @if (_message is not null) { <p class="notice notice-success" role="status">@_message</p> }
+    @if (_selected.Count > 0)
     {
-        <p class="state-panel" role="status"><span class="loading-dot"></span>Loading triggers…</p>
-    }
-    else if (_error is not null)
-    {
-        <p class="notice" role="alert">@_error</p>
-    }
-    else if (_schedulers.Count == 0)
-    {
-        <p class="notice">No schedulers are registered with this host.</p>
-    }
-    else
-    {
-        <section class="filter-panel" aria-label="Trigger filters">
-            <div class="filter-field">
-                <label for="triggers-scheduler">Scheduler</label>
-                <select id="triggers-scheduler" class="field" @bind="_selectedName" @bind:after="LoadTriggersAsync">
-                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@(scheduler.Status == "Unavailable" ? $"{scheduler.Name} (Unavailable)" : scheduler.Name)</option> }
-                </select>
-            </div>
-            <form class="search-form" @onsubmit="SearchTriggersAsync" @onsubmit:preventDefault="true">
-                <label for="trigger-search">Search trigger names</label>
-                <div class="search-row">
-                    <input id="trigger-search" class="field" type="search" @bind="_filter" @bind:event="oninput" placeholder="Trigger name" />
-                    <button class="button-primary" type="submit">Search</button>
-                </div>
-            </form>
-        </section>
-        @if (_actionMessage is not null)
-        {
-            <p class="notice notice-success" role="status">@_actionMessage</p>
-        }
-        @if (_actionError is not null)
-        {
-            <p class="notice" role="alert">@_actionError</p>
-        }
-        <section class="table-panel" aria-labelledby="triggers-table-heading">
-            <div class="panel-header table-panel-header">
-                <div>
-                    <h2 id="triggers-table-heading">Registered triggers</h2>
-                    <p class="panel-description">Schedules on @_selectedName</p>
-                </div>
-            </div>
-            @if (_page.Items.Count == 0)
-            {
-                <div class="empty-state">
-                    <h3>@(!string.IsNullOrWhiteSpace(_filter) ? "No matching triggers" : _page.Skip > 0 ? "No triggers on this page" : "No triggers registered")</h3>
-                    <p>@(!string.IsNullOrWhiteSpace(_filter) ? "Try another trigger name." : "Triggers registered with this scheduler will appear here.")</p>
-                </div>
-            }
-            else
-            {
-                <div class="table-scroll desktop-table"><table>
-                    <caption class="sr-only">Triggers for @_selectedName</caption>
-                    <thead><tr><th scope="col">Actions</th><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th><th scope="col">Previous fire (UTC)</th></tr></thead>
-                    <tbody>@foreach (var trigger in _page.Items)
-                    {
-                        <tr>
-                            <td>
-                                @if (trigger.IsManualRun)
-                                {
-                                    <span class="sr-only">One-shot trigger has no trigger actions.</span>
-                                }
-                                else
-                                {
-                                    <div class="row-actions">
-                                        @if (trigger.State == "Paused")
-                                        {
-                                            <button class="button-secondary" type="button" @onclick="() => ResumeTriggerAsync(trigger)" aria-label="@($"Resume {trigger.Group}.{trigger.Name}")" disabled="@_acting">Resume</button>
-                                        }
-                                        else
-                                        {
-                                            <button class="button-secondary" type="button" @onclick="() => PauseTriggerAsync(trigger)" aria-label="@($"Pause {trigger.Group}.{trigger.Name}")" disabled="@_acting">Pause</button>
-                                        }
-                                        <button class="button-danger" type="button" @onclick="() => DeleteTriggerAsync(trigger)" aria-label="@($"Delete {trigger.Group}.{trigger.Name}")" disabled="@_acting">Delete</button>
-                                    </div>
-                                }
-                            </td>
-                            <th scope="row">
-                                <span class="entity-name">@(trigger.IsManualRun ? "Manual run" : trigger.Name)</span>
-                                @if (trigger.IsManualRun) { <span class="manual-run-badge">One-shot</span> }
-                            </th>
-                            <td><span class="group-tag">@(trigger.IsManualRun ? "Dashboard" : trigger.Group)</span></td>
-                            <td><span class="entity-name">@trigger.JobName</span><span class="sub-cell">(@trigger.JobGroup)</span></td>
-                            <td><span class="state-badge" data-state="@trigger.State">@trigger.State</span></td>
-                            <td class="time-cell">@FormatTime(trigger.NextFireTimeUtc)</td>
-                            <td class="time-cell">@FormatTime(trigger.PreviousFireTimeUtc)</td>
-                        </tr>
-                    }</tbody>
-                </table></div>
-                <div class="mobile-records" role="list" aria-label="Triggers for @_selectedName">
-                    @foreach (var trigger in _page.Items)
-                    {
-                        <article class="mobile-record" role="listitem">
-                            <header class="mobile-record-heading">
-                                <h3>@(trigger.IsManualRun ? "Manual run" : trigger.Name)</h3>
-                                @if (trigger.IsManualRun)
-                                {
-                                    <span class="manual-run-badge">One-shot</span>
-                                }
-                                else
-                                {
-                                    <span class="group-tag">Group · @trigger.Group</span>
-                                }
-                            </header>
-                            <p class="mobile-related-job">Job: @trigger.JobName <span class="sub-cell">(@trigger.JobGroup)</span></p>
-                            <dl class="mobile-facts">
-                                <div><dt>State</dt><dd><span class="state-badge" data-state="@trigger.State">@trigger.State</span></dd></div>
-                                <div><dt>Next fire (UTC)</dt><dd>@FormatTime(trigger.NextFireTimeUtc)</dd></div>
-                                <div><dt>Previous fire (UTC)</dt><dd>@FormatTime(trigger.PreviousFireTimeUtc)</dd></div>
-                            </dl>
-                            @if (trigger.IsManualRun)
-                            {
-                                <p class="mobile-run-note">Temporary one-shot trigger from Run now; not a saved schedule.</p>
-                            }
-                            else
-                            {
-                                <div class="row-actions">
-                                    @if (trigger.State == "Paused")
-                                    {
-                                        <button class="button-secondary" type="button" @onclick="() => ResumeTriggerAsync(trigger)" aria-label="@($"Resume {trigger.Group}.{trigger.Name}")" disabled="@_acting">Resume</button>
-                                    }
-                                    else
-                                    {
-                                        <button class="button-secondary" type="button" @onclick="() => PauseTriggerAsync(trigger)" aria-label="@($"Pause {trigger.Group}.{trigger.Name}")" disabled="@_acting">Pause</button>
-                                    }
-                                    <button class="button-danger" type="button" @onclick="() => DeleteTriggerAsync(trigger)" aria-label="@($"Delete {trigger.Group}.{trigger.Name}")" disabled="@_acting">Delete</button>
-                                </div>
-                            }
-                        </article>
-                    }
-                </div>
-            }
-            @if (_page.Skip > 0 || _page.HasMore)
-            {
-                <nav class="pager" aria-label="Trigger pages">
-                    <span>Page @PageNumber</span>
-                    <div class="pager-actions">
-                        <button class="button-secondary" type="button" @onclick="PreviousPageAsync" disabled="@(_page.Skip == 0)">Previous</button>
-                        <button class="button-secondary" type="button" @onclick="NextPageAsync" disabled="@(!_page.HasMore)">Next <span aria-hidden="true">→</span></button>
-                    </div>
-                </nav>
-            }
+        var selectedRows = _page.Items.Where(x => _selected.Contains(new(x.Group, x.Name))).ToArray();
+        <section class="selection-bar" aria-label="Selected triggers"><strong>@_selected.Count selected (up to 100)</strong>
+            @if (_operate && selectedRows.Any(x => x.State != "Paused")) { <button class="button-secondary" disabled="@_acting" @onclick='() => BulkAsync("pause")'>Pause selected</button> }
+            @if (_operate && selectedRows.Any(x => x.State == "Paused")) { <button class="button-secondary" disabled="@_acting" @onclick='() => BulkAsync("resume")'>Resume selected</button> }
+            @if (selectedRows.Any(x => x.State == "Paused") && selectedRows.Any(x => x.State != "Paused")) { <span class="help-text">Mixed states: each action applies to the full selection.</span> }
+            @if (_admin) { <button class="button-danger" disabled="@_acting" @onclick='() => BulkAsync("delete")'>Delete selected…</button> }
+            <button class="button-quiet" @onclick="() => _selected.Clear()">Clear selection</button>
         </section>
     }
+    @if (_outcomes.Any(x => !x.Succeeded)) { <div class="notice notice-error" role="alert"><strong>Some triggers were not changed</strong><ul>@foreach (var result in _outcomes.Where(x => !x.Succeeded)) { <li>@result.Group / @result.Name: @result.Error</li> }</ul><p>Successful actions were retained. Retry only the remaining selection.</p></div> }
+    <section class="table-panel" aria-label="Registered triggers" aria-busy="@((_loading || _acting) ? "true" : "false")">
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Trigger table"><table class="record-table" role="table">
+            <caption class="sr-only">Triggers for @Context.SchedulerName. Times shown in UTC.</caption>
+            <thead><tr>@if (_operate || _admin) { <th scope="col"><label class="checkbox-target"><input type="checkbox" aria-label="Select up to 100 saved triggers on this page" checked="@(_selected.Count > 0 && _selected.Count == Math.Min(100, _page.Items.Count(x => !x.IsManualRun)))" @onchange="SelectAll" /></label></th> }<th scope="col">Trigger</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire</th><th scope="col">Previous fire</th><th scope="col">Actions</th></tr></thead>
+            <tbody>@foreach (var trigger in _page.Items)
+            {
+                <tr @key="(trigger.Group, trigger.Name)">
+                    @if (_operate || _admin) { <td class="record-select">@if (!trigger.IsManualRun) { <label class="checkbox-target"><input type="checkbox" aria-label="@($"Select {trigger.Group} / {trigger.Name}")" checked="@_selected.Contains(new(trigger.Group, trigger.Name))" disabled="@(_selected.Count >= 100 && !_selected.Contains(new(trigger.Group, trigger.Name)))" @onchange="e => Select(trigger, e)" /></label> }</td> }
+                    <th scope="row"><a class="entity-link" href="@EntityUrl("trigger", trigger.Group, trigger.Name)">@(trigger.IsManualRun ? "Manual run" : trigger.Name)</a><span class="sub-cell">@trigger.Group</span></th>
+                    <td data-label="Job"><span><a class="entity-link" href="@EntityUrl("job", trigger.JobGroup, trigger.JobName)">@trigger.JobName</a><span class="sub-cell">@trigger.JobGroup</span></span></td>
+                    <td data-label="State"><span class="status-badge" data-state="@trigger.State">@trigger.State</span></td>
+                    <td class="time-cell" data-label="Next fire">@Time(trigger.NextFireTimeUtc)</td><td class="time-cell" data-label="Previous fire">@Time(trigger.PreviousFireTimeUtc)</td>
+                    <td class="record-actions"><div class="row-actions">
+                        @if (trigger.IsManualRun) { <span class="text-muted">Temporary one-shot</span> }
+                        else
+                        {
+                            @if (_operate && trigger.State is "Normal" or "Executing" or "Blocked" or "Paused") { <button class="button-secondary" disabled="@_acting" @onclick='() => BulkAsync(trigger.State == "Paused" ? "resume" : "pause", trigger)'>@(trigger.State == "Paused" ? "Resume" : "Pause")</button> }
+                            <details class="action-menu"><summary>More<span class="sr-only"> actions for @trigger.Name</span></summary><div class="row-actions"><a class="button-quiet" href="@EntityUrl("trigger", trigger.Group, trigger.Name)">@(trigger.State == "Error" ? "Inspect / reset error" : "Details / edit")</a>@if (_admin) { <button class="button-danger" disabled="@_acting" @onclick='() => BulkAsync("delete", trigger)'>Delete…</button> }</div></details>
+                        }
+                    </div></td>
+                </tr>
+            }</tbody>
+        </table></div>
+        @if (!_loading && _page.Items.Count == 0) { <div class="empty-state"><h2>No triggers found</h2><p>Adjust the filters, select a scheduler, or add a schedule to a job.</p></div> }
+        <nav class="pager" aria-label="Trigger pages"><span>Page @(_page.Skip / Math.Max(1, _page.PageSize) + 1)</span><div class="pager-actions">@if (_page.Skip > 0) { <a class="button-secondary" href="@PageUrl(Math.Max(0, _page.Skip - _page.PageSize))">Previous</a> }@if (_page.HasMore) { <a class="button-secondary" href="@PageUrl(_page.Skip + _page.PageSize)">Next</a> }</div></nav>
+    </section>
 </main>

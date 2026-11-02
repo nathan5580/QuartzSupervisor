@@ -1,187 +1,236 @@
 # Quartz Supervisor
 [![CI](https://github.com/nathan5580/QuartzSupervisor/actions/workflows/ci.yml/badge.svg)](https://github.com/nathan5580/QuartzSupervisor/actions/workflows/ci.yml)
 
-An embeddable Quartz.NET operations dashboard for ASP.NET Core. Source: [GitHub](https://github.com/nathan5580/QuartzSupervisor). **The NuGet package is not published yet**; the instructions below distinguish running from this clone from future package installation.
+An embeddable operations dashboard for Quartz.NET: inspect work, run jobs, manage schedules, and follow actual executions alongside upcoming fire times. Runs inside your ASP.NET Core host; no separate frontend, database, CDN, or login system is required.
 
-![Quartz Supervisor dashboard overview](https://raw.githubusercontent.com/nathan5580/QuartzSupervisor/main/docs/images/dashboard-overview.png)
+**The package is not published to NuGet yet.** Build the local packages below, or reference `Libraries/QuartzSupervisor.Dashboard/QuartzSupervisor.Dashboard.csproj`. No publishing is performed by installation or the sample.
+
+![Quartz Supervisor overview](docs/images/dashboard-overview.png)
+
+## What it manages
+
+- **Overview:** scheduler controls, running executions, recent failures, and upcoming work.
+- **Jobs:** searchable, paged inventory; linked details and native history; parameterized manual runs; approved job creation; bulk pause/resume/delete with individual failure results.
+- **Triggers:** Once, Simple, and Cron creation/editing; ten-fire preview; timezone, calendar, misfire, priority, start/end settings; before/after review; stale-edit checks; pause/resume/delete and error-state reset. Unsupported schedule families remain read-only.
+- **Timeline:** observed run durations and forecast points, expandable job/trigger lanes, UTC/browser-local display, filters, range/zoom controls, follow-now mode, and an accessible list. Mobile defaults to the list. Forecasts never invent future run durations.
+- **Execution details:** native identity, node, progress, safe diagnostics, and cooperative cancellation on the connected node.
+- **Scheduler details:** store/concurrency/cluster metadata, observable nodes, Holiday/Weekly calendars with impact previews, and administrative activity.
+- **Embedding:** configurable route/title, shared scheduler selection in links, light/dark themes, responsive records, explicit anonymous mode, read-only mode, and host-owned permission policies.
 
 ## Compatibility
 
-- .NET 10 / ASP.NET Core 10 host.
-- Quartz.NET 4.3 or later, with scheduler(s) registered in the host's dependency-injection container.
-- Minimal API and MVC hosts are supported. The dashboard uses Razor Components with interactive server rendering.
+.NET 10 / ASP.NET Core 10; Quartz.NET 4.3.0. The package uses Quartz's public APIs, not raw scheduler tables. Supported hosts include Minimal API, MVC/Razor Pages, and applications with their own interactive Razor component app. The dashboard has an isolated route prefix and circuit hub. It is not a JavaScript-only widget or a replacement for the scheduler host.
 
-Quartz Supervisor reads and controls schedulers through Quartz APIs; it does not inspect scheduler database tables or display job data maps.
+Native capabilities depend on the connected Quartz version, store, and permissions. Independent remote schedulers must have unique names in the dashboard host. A cluster configuration flag is not proof of visibility into every node.
 
-## Guided AI setup
-
-Use the [guided AI setup prompt](docs/AI_SETUP_PROMPT.md) from the root of the host application. It makes the agent inspect the existing host first, confirm only missing topology/auth decisions, never request secrets, and verify the result.
-
-## Run the sample from source
-
-Requires the .NET 10 SDK. Clone the repository and run:
+## Run the sample
 
 ```sh
-git clone https://github.com/nathan5580/QuartzSupervisor.git
-cd QuartzSupervisor
-dotnet run --project Samples/Embedded/Embedded.csproj
+dotnet run --project Samples/Embedded/Embedded.csproj --no-launch-profile -- --environment Development --urls http://127.0.0.1:5000
 ```
 
-Open `http://localhost:5000/quartz-supervisor` in Development. The sample allows anonymous access only in Development and binds to localhost there; set `ASPNETCORE_URLS` to choose another local port. This is a source/sample workflow, not a NuGet installation.
+Open <http://127.0.0.1:5000/quartz-supervisor/>. Development explicitly permits anonymous management. The sample runs only delays, progress updates, and a deliberate failure: no external services, payments, email, or application files. Its in-memory state clears on restart.
 
-The sample's heartbeat job waits 15 seconds so its live execution bar is visible in the timeline.
+Production mode requires authentication and supplies no demo sign-in. Optional sample configuration keys:
 
-## Embed in an ASP.NET Core host
+| Key | Purpose |
+| --- | --- |
+| `Dashboard__Path` | Dashboard mount, default `/quartz-supervisor` |
+| `Dashboard__PathBase` | Simulated reverse-proxy application prefix |
+| `Dashboard__RequireAuthentication` | Explicit authentication requirement |
+| `Dashboard__ReadOnly` | Server-enforced view-only mode |
+| `Dashboard__DemoAuthentication` | Development-only test identities via `X-Dashboard-Demo-Role: reader`, `operator`, or `administrator`; requires authentication to be enabled |
 
-Until publication, consume the projects from a local clone (for example, add a project reference to `Libraries/QuartzSupervisor.Dashboard/QuartzSupervisor.Dashboard.csproj`). That project references the integration project. After publication, install the `QuartzSupervisor` package instead; do not assume it is currently available on NuGet.
+## Build and install the local package
 
-Keep the host's Quartz registration and configure its own authentication. Minimal setup:
+From this repository:
+
+```sh
+dotnet pack Libraries/QuartzSupervisor.Integration/QuartzSupervisor.Integration.csproj -c Release -o artifacts/packages
+dotnet pack Libraries/QuartzSupervisor.Dashboard/QuartzSupervisor.Dashboard.csproj -c Release -o artifacts/packages
+```
+
+Both packages are required in the local feed. From the consuming application's directory, use the absolute path to that feed:
+
+```sh
+dotnet nuget add source /absolute/path/to/QuartzSupervisor/artifacts/packages --name quartz-supervisor-local
+dotnet add package QuartzSupervisor --version 0.1.0
+```
+
+The package brings its integration library and self-hosted UI assets. Keep the application's normal NuGet sources for dependencies. The original package icon is included as `icon.png`; the same faceted Q appears in the dashboard.
+
+## Embed beside an existing scheduler
+
+Keep the application's existing Quartz, jobs, storage, and hosted-service registration. Add only:
+
+```csharp
+using QuartzSupervisor.Dashboard;
+
+builder.Services.AddQuartzSupervisorDashboard();
+
+// Preserve the host's existing authentication and middleware.
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseAntiforgery();
+app.MapStaticAssets();
+app.MapQuartzSupervisorDashboard();
+```
+
+Register services before `builder.Build()`. Middleware calls belong after it. Existing MVC, API, Razor Pages, and component routes can remain mapped normally. Do not register the dashboard twice.
+
+`AddQuartzSupervisorDashboard()` adds interactive server components, authorization services, native history support, and dashboard services. It does **not** add an authentication scheme, accounts, a login page, or a new scheduler. The host must already register Quartz and, for a local scheduler, its Quartz hosted service.
+
+The default route is `/quartz-supervisor/`. Custom mounting does not require editing component routes:
+
+```csharp
+builder.Services.AddQuartzSupervisorDashboard(options =>
+{
+    options.Path = "/operations/quartz";
+    options.Title = "Background work";
+});
+```
+
+Use a non-root, literal path made of letters, digits, hyphens, and underscores. For a proxy prefix, configure the host's normal `UsePathBase` **before `UseRouting`**, preserve forwarded scheme/host information securely, and forward WebSockets. Dashboard links, static assets, and the circuit hub account for the host's `PathBase`. `MapStaticAssets()` serves framework and package assets at the application root, not under the dashboard mount.
+
+## Optional authentication and permissions
+
+Authentication is **required by default**. Use the host's browser sign-in scheme, commonly cookies/OIDC. API-only bearer authentication does not create a browser login flow. The host owns session revocation/revalidation for long-lived Blazor circuits.
+
+For an isolated local tool or a dashboard behind a deliberately trusted access boundary, explicitly opt out:
+
+```csharp
+builder.Services.AddQuartzSupervisorDashboard(options =>
+{
+    options.RequireAuthentication = false;
+    // options.ReadOnly = true; // Also blocks writes on the server.
+});
+```
+
+No authentication scheme is needed in this mode; omit `UseAuthentication()` if the host has none. Keep `UseAuthorization()`, antiforgery, and static assets. Anonymous mode allows all management actions unless read-only mode or policies restrict them. `.AllowAnonymous()` on the mapping alone does not disable the command-level authentication requirement. Never expose anonymous administration to an untrusted network.
+
+Separate viewing, operating, and configuration/destruction:
+
+```csharp
+builder.Services.AddAuthorization(policies =>
+{
+    policies.AddPolicy("QuartzView", p => p.RequireRole("viewer", "operator", "administrator"));
+    policies.AddPolicy("QuartzOperate", p => p.RequireRole("operator", "administrator"));
+    policies.AddPolicy("QuartzAdminister", p => p.RequireRole("administrator"));
+});
+builder.Services.AddQuartzSupervisorDashboard(options =>
+{
+    options.ViewPolicy = "QuartzView";
+    options.OperatePolicy = "QuartzOperate";
+    options.AdministerPolicy = "QuartzAdminister";
+});
+```
+
+Policies are cumulative: administration also requires view and operate. Each query/command checks the current scoped identity on the server, not just button visibility. The authorization resource is the **scheduler name string**, allowing host handlers to restrict individual schedulers. Additional `.RequireAuthorization("HostPolicy")` mapping policies are also rechecked for circuit operations. Expired identities are rejected; immediate logout/role revocation still requires the host's revalidating `AuthenticationStateProvider`.
+
+| Permission | Actions |
+| --- | --- |
+| View | Inventory, history, previews, metadata, calendars |
+| Operate | Start/standby, manual run, pause/resume, trigger error reset, cancellation request |
+| Administer | Create/delete jobs, create/edit/delete triggers and calendars, view administrative activity |
+
+## Approve job types and parameters
+
+Existing jobs are inspectable/runnable without a catalog, but arbitrary job types and data-map values are not exposed. Register only implementations and parameter names that operators may choose:
+
+```csharp
+using QuartzSupervisor.Dashboard;
+using QuartzSupervisor.Integration;
+
+builder.Services.AddQuartzSupervisorDashboard(options =>
+{
+    options.Management.JobTypes.Add(new DashboardJobType(
+        "report", "Generate report", typeof(ReportJob).AssemblyQualifiedName!,
+        [new DashboardParameter("Days", "Days to include", "int", Required: true)]));
+});
+```
+
+`ReportJob` is the host's real `IJob` implementation. Supported parameter types: `string`, `int`, `long`, `decimal`, and `bool`. Set `Sensitive: true` for secret fields; stored sensitive values are never returned to the UI. Numeric/type validation occurs server-side; domain constraints remain the job's responsibility. Manual overrides apply only to that run. Job creation never starts a job automatically. Non-durable jobs can await their first schedule, then follow Quartz's normal last-trigger deletion rules.
+
+Remote creation requires compatible approved job assemblies on both hosts and the target API's permission to create them. Existing implementation/stored job configuration remains host-owned; the dashboard does not load arbitrary assemblies or provide a code editor.
+
+## Connect remote Quartz APIs
+
+On each scheduler-owning host, retain its scheduler configuration and add Quartz's HTTP API and history:
+
+```csharp
+builder.Services.AddQuartzExecutionHistory();
+builder.Services.AddQuartzHttpApi();
+// Use the API host's real service-authentication scheme and policy.
+app.MapQuartzHttpApi("/quartz-api").RequireAuthorization("QuartzApi");
+```
+
+The scheduler host uses `Quartz.AspNetCore` 4.3.0 and its existing Quartz hosted service. `QuartzHttpApiOptions.SchedulerAuthorizationPolicy` can additionally restrict `SchedulerResource` on scheduler-scoped API routes.
+
+On the central dashboard host:
 
 ```csharp
 using Quartz;
 using QuartzSupervisor.Dashboard;
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddQuartz(options => { /* your jobs and scheduler configuration */ });
-builder.Services.AddQuartzHostedService(options => options.WaitForJobsToComplete = true);
-builder.Services.AddQuartzSupervisorDashboard();
-// Configure your host's authentication scheme and authorization services.
-
-var app = builder.Build();
-app.UseAuthentication();
-app.UseAuthorization();
-app.UseAntiforgery();
-app.MapStaticAssets();
-// Map your own routes/controllers as usual.
-app.MapQuartzSupervisorDashboard();
-app.Run();
-```
-
-`AddQuartzSupervisorDashboard()` registers dashboard services, authorization services, and interactive server components. It does not register an authentication scheme, user store, or sign-in page. `MapQuartzSupervisorDashboard()` requires an authenticated user by default. The host owns human sign-in and authorization.
-
-For the browser dashboard, configure the host's existing interactive sign-in scheme (commonly cookie plus OIDC). API-only bearer authentication is not automatically a browser sign-in flow. Register the scheme and policies in `builder.Services`, then call `UseAuthentication()` and `UseAuthorization()` in that order before mapped endpoints.
-
-To require a host role for the dashboard while leaving other API routes under their existing policies:
-
-```csharp
-builder.Services.AddAuthorization(options =>
-    options.AddPolicy("DashboardAdmin", policy => policy.RequireRole("DashboardAdmin")));
-
-app.MapQuartzSupervisorDashboard().RequireAuthorization("DashboardAdmin");
-```
-
-This policy applies to the dashboard endpoint only. Use the host's normal role/claim mapping and authentication scheme.
-
-`UseAntiforgery()` and `MapStaticAssets()` are part of the working .NET 10 setup: static asset mapping serves dashboard and Blazor framework assets. Keep any other middleware your host needs. Do not make the dashboard anonymous outside a deliberately public, isolated local development setup.
-
-## Connect one or more remote Quartz APIs
-
-Choose the deployment that matches where the scheduler runs:
-
-| Topology | Dashboard host | Scheduler host |
-| --- | --- | --- |
-| Same process | Register the local scheduler and dashboard. No Quartz HTTP client/API is needed. | Same host. |
-| Central dashboard, one API and one scheduler | Register one `AddQuartzHttpClient` entry and its named `HttpClient`. | Expose the scheduler through a protected Quartz HTTP API. |
-| Central dashboard, one API and multiple schedulers | Register one `AddQuartzHttpClient` entry per scheduler; they may share one named `HttpClient`. | One `AddQuartzHttpApi()` serves the schedulers registered in that API host. |
-| Central dashboard, multiple API hosts | Register one entry per remote scheduler. Use separate named clients where API URL or credentials differ. | Each API host owns its Quartz configuration, storage, and authorization. |
-
-Remote `AddQuartzHttpClient` registrations are keyed by scheduler name, so names must be unique in the central host. If separate API hosts both use the default scheduler name, configure distinct scheduler instance names on the API hosts before registering them centrally. Registering two independent targets under the same name collides; it does not create failover or a cluster.
-
-On each scheduler-owning API host, retain its existing Quartz job-store/jobs configuration and expose a protected endpoint. `AddQuartzHttpApi()` serves the schedulers registered in that host under one API path. Each scheduler's name must match its dashboard `AddQuartzHttpClient` registration:
-
-```csharp
-using Quartz;
-
-builder.Services.AddQuartz(options =>
-{
-    options.ConfigureScheduler(scheduler => scheduler.InstanceName = "billing");
-    // Keep this API's existing job store, jobs, and triggers here.
-});
-
-builder.Services.AddQuartzHostedService(options => options.WaitForJobsToComplete = true);
-builder.Services.AddQuartzHttpApi();
-// Register this API host's existing authentication scheme.
-builder.Services.AddAuthorization(options =>
-    options.AddPolicy("QuartzApi", policy => policy.RequireAuthenticatedUser()));
-
-app.UseAuthentication();
-app.UseAuthorization();
-app.UseAntiforgery();
-app.MapQuartzHttpApi("/quartz-api").RequireAuthorization("QuartzApi");
-```
-
-For scheduler-specific access rules, configure `QuartzHttpApiOptions.SchedulerAuthorizationPolicy` with a resource-aware policy for `SchedulerResource`. The API then applies that policy to scheduler-scoped routes and filters the scheduler listing to schedulers the caller may access. `RequireAuthorization("QuartzApi")` above is the separate host-level requirement that callers authenticate before reaching the API.
-
-On the central dashboard host, a single remote scheduler uses one named client and one registration:
-
-```csharp
-using Quartz;
-
-var billingAddress = builder.Configuration["QuartzApis:Billing:BaseAddress"]
-    ?? throw new InvalidOperationException("Missing QuartzApis:Billing:BaseAddress.");
-var billingToken = builder.Configuration["QuartzApis:Billing:AccessToken"]
-    ?? throw new InvalidOperationException("Missing QuartzApis:Billing:AccessToken.");
-
-builder.Services.AddQuartz(options => { }); // Required before AddQuartzHttpClient.
+builder.Services.AddQuartz(_ => { });
 builder.Services.AddHttpClient("billing-api", client =>
 {
-    client.BaseAddress = new Uri(billingAddress);
-    client.DefaultRequestHeaders.Authorization =
-        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", billingToken);
+    client.BaseAddress = new Uri(builder.Configuration["QuartzApis:Billing:BaseAddress"]
+        ?? throw new InvalidOperationException("Missing billing API address."));
 });
-builder.Services.AddQuartzHttpClient("billing", "billing-api");
+// Attach the host's authenticated DelegatingHandler/token provider to that named client.
+builder.Services.AddQuartzSupervisorRemote("billing", "billing-api");
 builder.Services.AddQuartzSupervisorDashboard();
 ```
 
-Use the authentication scheme actually configured by that API. Set `BaseAddress` to the API route with a trailing slash (for example, `https://billing.example/quartz-api/`). This snippet shows a static bearer credential only; for OAuth client credentials or rotating tokens, attach a `DelegatingHandler` that uses the host's token provider. Supply secrets through the host's secret manager or environment (for example, `QuartzApis__Billing__AccessToken`), never committed settings or source.
+Set the base address to the **API route with a trailing slash**, for example `https://billing.example/quartz-api/`. Register `AddQuartzSupervisorRemote` once per scheduler. Multiple schedulers behind the same API/credentials may share one named client; separate API URLs or credentials need separate clients. This helper wires both the native Quartz client and server-side SSE using the same named client's authentication handlers. It replaces plain `AddQuartzHttpClient` registration for dashboard-managed remote targets.
 
-Register one `AddQuartzHttpClient` entry per remote scheduler. Schedulers behind the same API URL and using the same credentials can share a named client:
+Remote service credentials stay on the server. Human permissions are enforced by the dashboard; remote calls use the configured service identity, not automatically the human user's claims. Explicit token delegation is host work. Never forward browser cookies or place service credentials in URLs/client scripts.
+
+The official event stream has no replay. On disconnect the UI reports snapshot mode; reconnect invalidates views and reconciles native history. Pages also refresh snapshots periodically. A target without the stream or native history remains explicit about that limitation rather than inventing executions.
+
+## History, diagnostics, and audit
+
+History comes from Quartz's `IExecutionHistoryStore`, not a second dashboard history database. Configure native retention in the scheduler host:
 
 ```csharp
-using Quartz;
-
-builder.Services.AddQuartzHttpClient("billing", "billing-api");
-builder.Services.AddQuartzHttpClient("reports", "billing-api");
+builder.Services.AddQuartzExecutionHistory(options =>
+{
+    options.Retention = TimeSpan.FromDays(1);
+    options.MaxEntriesPerScheduler = 2000;
+});
 ```
 
-Use separate named clients when API URLs or credentials differ. `billing` and `reports` may be hosted by one API or two; one registration is required for each scheduler.
+In-memory history clears on restart. For a persistent Quartz store, enable `store.UseExecutionHistory()` inside the existing persistent-store configuration and apply the matching native Quartz schema/migrations. The dashboard does not provision or migrate production databases. The SQLite restart test exercises native persisted jobs and execution history.
 
-Authentication boundaries:
+Diagnostics are withheld by default, including exception text, execution logs, and progress messages. Numeric progress remains available. Expose only sanitized messages through an explicit host redactor; for example, a host that emits a deliberately public diagnostic prefix can use:
 
-- The dashboard host authenticates the human operator. Remote API calls use the central host's service credentials; the API does not automatically receive the human user's identity.
-- The dashboard's host authorization policy controls which operators can use the UI. Each Quartz API separately controls which service identities can query or control its schedulers; scheduler-specific rules can use `QuartzHttpApiOptions.SchedulerAuthorizationPolicy`.
-- If an API must authorize individual human operators, implement and verify explicit token delegation. Do not assume it is built in or forward browser cookies.
+```csharp
+options.Management.RedactDiagnostic = text =>
+    text.StartsWith("PUBLIC:", StringComparison.Ordinal) ? text[7..] : null;
+```
 
-Use HTTPS and never expose service credentials to browser code. Quartz Supervisor does not proxy arbitrary URLs, store credentials, or choose a job store. Listener-based live timeline capture is local to the dashboard process; remote executions are not streamed.
+The host must ensure such messages contain no secrets. Returned errors/progress text are capped at 4 KiB and logs at 32 KiB. Arbitrary job data maps are never dumped.
 
+The audit view retains the latest **500 dashboard commands process-wide**, with actor, scheduler, action, target, and outcome. It excludes external Quartz changes and clears on restart. Structured host logs are also emitted. Set `options.Management.AuditSink` to a host-owned durable sink when required. Sink failure is logged without falsely reporting an already-applied scheduler command as failed; this optional sink is not a transactional compliance ledger.
 
-## Behavior and limits
+## Operational boundaries
 
-- Multiple schedulers registered with the host's `ISchedulerFactory` can be selected in the dashboard.
-- Overview reports scheduler state, job/trigger counts, and up to five upcoming triggers. Job and trigger lists are searchable and paged.
-- Operators can start a scheduler, put it in standby, run a job now, pause/resume jobs or triggers, and delete jobs or triggers.
-- Standby does not interrupt running jobs. Starting resumes scheduling and Quartz applies configured misfire instructions. Deleting a job also deletes its triggers. Removing a trigger may also remove its non-durable job if it was the last trigger; destructive actions ask for confirmation.
-- Creating or rescheduling triggers is not supported. No job data maps or secrets are displayed.
-- For in-process schedulers, Quartz listener callbacks stream updates over the existing Blazor Server connection; no extra hub or polling loop is added.
-- A scheduler whose status request fails with a Quartz/HTTP error or times out is labeled **Unavailable** and listed after healthy schedulers. Other schedulers remain usable; requests to the unavailable scheduler still report an error.
-- Timeline uses a self-hosted vis-timeline 8.5.2 build (Apache-2.0 OR MIT; no CDN). Runs are grouped by job, shown against a UTC time axis, and color-coded by status; the chart supports zoom, pan, a moving current-time marker, and a Live now reset. In-process runs only; up to 100 are retained per scheduler in memory, with a rolling 10-minute view and manual one-shot runs labeled.
+- Standby pauses future scheduling; it does not stop running jobs. Quartz applies configured misfire rules on restart/resume.
+- Cancellation is cooperative and node-local in the supported API. “Requested” is not “stopped,” and cancellation cannot undo work. Completed status reflects the native result; no cancellation outcome is fabricated.
+- Stale trigger/calendar revisions are checked again immediately before writes and serialized within this dashboard process. Quartz's public APIs do not offer a distributed compare-and-swap against simultaneous external writers.
+- Forecasts honor supported native schedules/calendars and exclude paused triggers. They do not reconstruct missed past slots or guarantee capacity, dependency completion, or future execution. Views are bounded (`Management.MaxTimelineItems`, default 1000); narrowing the range/filter exposes focused data.
+- Inventory pages default to 50 records (`Management.PageSize`). Overview sorts compact trigger headers to find the true next five; that operation is linear in trigger count. Jobs enrich only requested pages, while timeline inventory avoids per-job enrichment.
+- Chart clocks stop offscreen/when hidden and with reduced motion. Running execution inspectors refresh progress while active; other views coalesce scheduler events and periodically refresh snapshots.
+- Native execution identity includes scheduler/node information. A running inspector follows completion only when native history uniquely matches its exact node, job, trigger, and firing time.
+- `QuartzSupervisor.Integration` alone offers `AddQuartzSupervisorIntegration()` for trusted programmatic consumers. It does not provide browser authorization; supply `ISchedulerDashboardAccess` when exposing those services through another surface.
 
-- If a Blazor Server circuit drops, the branded dialog reports retries and exposes retry/refresh actions only when automatic recovery fails.
+## Troubleshooting and development
 
-![Quartz Supervisor live job execution timeline](https://raw.githubusercontent.com/nathan5580/QuartzSupervisor/main/docs/images/live-execution-timeline.png)
+- **401/403:** check the host scheme, cumulative policies, scheduler resource handler, and expired session. Do not disable auth merely to hide a configuration error.
+- **Missing assets/interactivity:** retain `MapStaticAssets()`, `UseAntiforgery()`, correct `PathBase`/routing order, and WebSocket proxy support.
+- **Missing remote scheduler:** check exact unique scheduler name, API-route base address, and named-client credentials.
+- **Missing history:** inspect the scheduler host's native history configuration, retention, persistent schema, and service permissions.
+- **Read-only fields:** unsupported trigger/calendar implementations are deliberately protected from lossy edits.
 
-## Troubleshooting
-
-- **Dashboard returns 401/redirects:** configure the host's authentication scheme and middleware; dashboard access is authenticated by default.
-- **Page loads without styling or interactive behavior:** retain `MapStaticAssets()`, `UseAntiforgery()`, and the interactive server component setup shown above.
-- **No scheduler appears:** register Quartz in the same host service provider before mapping the dashboard; the dashboard discovers schedulers via `ISchedulerFactory`.
-- **Remote scheduler missing:** install `Quartz.HttpClient` (4.3 or later), start the dashboard host so the Quartz HTTP clients bind to the scheduler repository, and check that each registered name matches its API host.
-- **No executions visible:** the graph starts observing after a scheduler is first queried and retains runs only in memory; run a job or wait for a trigger.
-
-## Contributing and security
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the local workflow and useful issue/PR reports. Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
-
-## License
-
-[MIT](LICENSE)
+[Guided AI setup](docs/AI_SETUP_PROMPT.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT license](LICENSE)

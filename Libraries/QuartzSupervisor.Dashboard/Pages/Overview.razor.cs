@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
+using QuartzSupervisor.Dashboard.Services;
 using QuartzSupervisor.Integration;
 
 namespace QuartzSupervisor.Dashboard.Pages;
@@ -8,104 +10,114 @@ public partial class Overview : IDisposable
     [Inject] public ISchedulerDashboardQueries Queries { get; set; } = default!;
     [Inject] public ISchedulerDashboardCommands Commands { get; set; } = default!;
     [Inject] public ISchedulerDashboardUpdates Updates { get; set; } = default!;
-
-    private readonly CancellationTokenSource _lifetimeCancellation = new();
-    private IReadOnlyList<SchedulerSummary> _schedulers = [];
+    [Inject] public DashboardContext Context { get; set; } = default!;
+    [Inject] public IJSRuntime JS { get; set; } = default!;
+    [SupplyParameterFromQuery(Name = "scheduler")] public string? SchedulerName { get; set; }
+    private readonly CancellationTokenSource _lifetime = new();
     private DashboardOverview? _overview;
-    private string _selectedName = "";
-    private string? _error;
-    private bool _loading = true;
-    private string? _actionMessage;
-    private string? _actionError;
-    private bool _acting;
+    private SchedulerDetails? _details;
+    private IReadOnlyList<DashboardExecution> _running = [];
+    private DashboardHistory? _failures;
+    private string _scheduler = "";
+    private string? _error, _message;
+    private bool _loading = true, _acting, _refreshQueued, _refreshPending;
+    private int _version;
+    private DateTimeOffset _captured;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        Updates.Changed += OnDashboardChanged;
-        try
-        {
-            _schedulers = await Queries.GetSchedulersAsync(_lifetimeCancellation.Token);
-            if (_schedulers.Count > 0)
-            {
-                _selectedName = _schedulers[0].Name;
-                await LoadOverviewAsync();
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception) { _error = "Scheduler information is unavailable."; }
-        finally { _loading = false; }
+        Updates.Changed += Changed;
+        _ = PollAsync();
     }
 
-    private async Task LoadOverviewAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        _loading = true;
-        _error = null;
-        try
+        var parametersVersion = ++_version;
+        var name = SchedulerName ?? Context.SchedulerName;
+        if (string.IsNullOrEmpty(name))
         {
-            _overview = await Queries.GetOverviewAsync(_selectedName, _lifetimeCancellation.Token);
+            try { name = (await Queries.GetSchedulersAsync(_lifetime.Token)).FirstOrDefault()?.Name ?? ""; }
+            catch (Exception ex) when (ex is not OperationCanceledException) { _error = ex.Message; _loading = false; return; }
         }
-        catch (KeyNotFoundException)
-        {
-            _overview = null;
-            _error = "Unknown scheduler. Select a registered scheduler.";
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception) { _overview = null; _error = "Scheduler status is unavailable."; }
-        finally { _loading = false; }
+        if (parametersVersion != _version || _lifetime.IsCancellationRequested) return;
+        if (_scheduler != name) { _overview = null; _details = null; _message = null; }
+        _scheduler = name;
+        if (name.Length == 0) { _loading = false; return; }
+        Context.SchedulerName = name;
+        await LoadAsync();
     }
 
-
-    private void OnDashboardChanged(string schedulerName)
+    private async Task LoadAsync()
     {
-        if (!string.Equals(_selectedName, schedulerName, StringComparison.Ordinal))
-            return;
+        var version = ++_version;
+        var scheduler = _scheduler;
+        try
+        {
+            var overview = await Queries.GetOverviewAsync(scheduler, _lifetime.Token);
+            var details = await Queries.GetSchedulerDetailsAsync(scheduler, _lifetime.Token);
+            var running = await Queries.GetRunningAsync(scheduler, _lifetime.Token);
+            var failures = await Queries.GetHistoryAsync(scheduler, new ExecutionFilter { FailedOnly = true, FromUtc = DateTimeOffset.UtcNow.AddDays(-1) }, _lifetime.Token);
+            if (version != _version || _lifetime.IsCancellationRequested) return;
+            _overview = overview; _details = details; _running = running; _failures = failures;
+            _captured = DateTimeOffset.UtcNow; _error = null;
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { if (version == _version) _error = ex.Message; }
+        finally { if (version == _version) _loading = false; }
+    }
 
+    private void Changed(string name)
+    {
+        if (name != _scheduler || _lifetime.IsCancellationRequested) return;
         _ = InvokeAsync(async () =>
         {
-            if (_loading || _acting)
-                return;
-            await LoadOverviewAsync();
-            StateHasChanged();
+            _refreshPending = true;
+            if (_refreshQueued) return;
+            _refreshQueued = true;
+            try
+            {
+                while (_refreshPending && !_lifetime.IsCancellationRequested)
+                {
+                    _refreshPending = false;
+                    await Task.Delay(250, _lifetime.Token);
+                    await LoadAsync();
+                    StateHasChanged();
+                }
+            }
+            catch (OperationCanceledException) { }
+            finally { _refreshQueued = false; }
         });
     }
 
-    private Task StartSchedulerAsync() =>
-        RunSchedulerCommandAsync(Commands.StartSchedulerAsync, "Scheduler started.");
-
-    private Task StandbySchedulerAsync() =>
-        RunSchedulerCommandAsync(Commands.StandbySchedulerAsync, "Scheduler is in standby.");
-
-    private async Task RunSchedulerCommandAsync(
-        Func<string, CancellationToken, Task> command,
-        string successMessage)
+    private async Task PollAsync()
     {
-        _acting = true;
-        _actionMessage = null;
-        _actionError = null;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try { while (await timer.WaitForNextTickAsync(_lifetime.Token)) if (_details?.Capabilities.Remote == true) Changed(_scheduler); }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task ChangeStatusAsync()
+    {
+        if (_overview is null || _acting) return;
+        var scheduler = _scheduler;
+        var standby = _overview.Scheduler.Status == "Running";
+        if (standby && !await JS.InvokeAsync<bool>("confirm", "Put this scheduler in standby? Future firings pause; running jobs continue.")) return;
+        _acting = true; _message = null;
         try
         {
-            await command(_selectedName, _lifetimeCancellation.Token);
-            _actionMessage = successMessage;
-            await LoadOverviewAsync();
+            if (standby) await Commands.StandbySchedulerAsync(scheduler, _lifetime.Token);
+            else await Commands.StartSchedulerAsync(scheduler, _lifetime.Token);
+            if (scheduler != _scheduler) return;
+            _message = standby ? "Scheduler is in standby. Running jobs are not cancelled." : "Scheduler started.";
+            await LoadAsync();
         }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { _actionError = $"Scheduler command failed: {ex.Message}"; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) { if (scheduler == _scheduler) _error = ex.Message; }
         finally { _acting = false; }
     }
 
-    private static string StatusLabel(string status) => status switch
-    {
-        "Running" => "Running",
-        "Standby" => "Standby",
-        "Created" => "Not started",
-        "ShuttingDown" => "Shutting down",
-        _ => status
-    };
-
-    public void Dispose()
-    {
-        Updates.Changed -= OnDashboardChanged;
-        _lifetimeCancellation.Cancel();
-        _lifetimeCancellation.Dispose();
-    }
+    private string EntityUrl(string page, string group, string name) => Context.Url(page, _scheduler, new Dictionary<string, string?> { ["group"] = group, ["name"] = name });
+    private string RunUrl(DashboardExecution run) => Context.Url("execution", _scheduler, new Dictionary<string, string?> { ["id"] = run.Id });
+    private static string Time(DateTimeOffset? time) => time?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'") ?? "Not available";
+    public void Dispose() { ++_version; Updates.Changed -= Changed; _lifetime.Cancel(); _lifetime.Dispose(); }
 }

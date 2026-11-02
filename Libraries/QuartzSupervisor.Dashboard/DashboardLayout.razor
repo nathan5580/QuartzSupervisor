@@ -1,56 +1,114 @@
 @inherits LayoutComponentBase
+@implements IDisposable
 @using Microsoft.JSInterop
+@using QuartzSupervisor.Dashboard.Services
+@using QuartzSupervisor.Integration
 @inject IJSRuntime JS
+@inject DashboardContext Context
+@inject ISchedulerDashboardQueries Queries
 
 <HeadContent>
-    <link rel="stylesheet" href="/_content/QuartzSupervisor/dashboard.css" />
+    <link rel="stylesheet" href="@Context.Asset("dashboard.css")" />
+    <link rel="icon" type="image/svg+xml" href="@Context.Asset("quartz-mark.svg")" />
 </HeadContent>
 <div class="app-shell">
-
-<a class="skip-link" href="#main-content">Skip to main content</a>
-
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <header class="app-header">
-        <a class="brand" href="/quartz-supervisor">
-            <span class="brand-name">Quartz</span><span class="brand-divider" aria-hidden="true"></span><span class="brand-product">Supervisor</span>
-        </a>
-        <nav class="primary-nav" aria-label="Primary navigation">
-            <NavLink href="/quartz-supervisor" Match="NavLinkMatch.All">Overview</NavLink>
-            <NavLink href="/quartz-supervisor/jobs">Jobs</NavLink>
-            <NavLink href="/quartz-supervisor/triggers">Triggers</NavLink>
-            <NavLink href="/quartz-supervisor/timeline">Timeline</NavLink>
-        </nav>
-        <div class="header-tools">
-            <span class="header-context">Quartz.NET</span>
-            <button class="theme-toggle" type="button" @onclick="ToggleThemeAsync" aria-label="@ThemeAction" title="@ThemeAction">
-                @if (_dark)
+        <div class="header-inner">
+            <a class="brand" href="@Context.Url()" aria-label="@Context.Title">
+                <img class="brand-symbol" src="@Context.Asset("quartz-mark.svg")" width="36" height="36" alt="" />
+                <span class="brand-name">@Context.Title</span>
+            </a>
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <NavLink href="@Context.Url()" Match="NavLinkMatch.All">Overview</NavLink>
+                <NavLink href="@Context.Url("jobs")">Jobs</NavLink>
+                <NavLink href="@Context.Url("triggers")">Triggers</NavLink>
+                <NavLink href="@Context.Url("timeline")">Timeline</NavLink>
+            </nav>
+            <div class="header-tools">
+                @if (_schedulers.Count > 0)
                 {
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
-                    <span>Light mode</span>
+                    <div class="scheduler-context">
+                        <label class="sr-only" for="global-scheduler">Scheduler</label>
+                        <select id="global-scheduler" class="field" value="@Context.SchedulerName" @onchange="SelectScheduler">
+                            @foreach (var scheduler in _schedulers)
+                            {
+                                <option value="@scheduler.Name">@scheduler.Name@(scheduler.Status == "Unavailable" ? " · unavailable" : "")</option>
+                            }
+                        </select>
+                    </div>
+                    <a class="icon-button scheduler-settings" href="@Context.Url("scheduler")" aria-label="Scheduler settings and calendars" title="Scheduler settings and calendars">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.6 2.2-2 .9-2.1-.6-2 3.5L4 10.6v2.8L2.3 15l2 3.5 2.1-.6 2 .9L9 21h4l.6-2.2 2-.9 2.1.6 2-3.5-1.7-1.6v-2.8L19.7 9l-2-3.5-2.1.6-2-.9L13 3H9Z" /><circle cx="11" cy="12" r="3" /></svg>
+                    </a>
                 }
-                else
-                {
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 15.5A8.5 8.5 0 0 1 8.5 3.6 8.5 8.5 0 1 0 20.4 15.5Z" /></svg>
-                    <span>Dark mode</span>
-                }
-            </button>
+                <button class="icon-button theme-toggle" type="button" @onclick="ToggleThemeAsync" aria-label="@ThemeAction" title="@ThemeAction">
+                    @if (_dark)
+                    {
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 15.5A8.5 8.5 0 0 1 8.5 3.6 8.5 8.5 0 1 0 20.4 15.5Z" /></svg>
+                    }
+                </button>
+            </div>
         </div>
     </header>
-    <div class="content">@Body</div>
+    @if (_error is not null)
+    {
+        <p class="notice notice-error shell-alert" role="alert">@_error</p>
+    }
+    <div class="content">
+        @if (Context.ReadOnly)
+        {
+            <p class="access-mode"><span class="status-badge">Read-only</span> This dashboard allows inspection only.</p>
+        }
+        @Body
+    </div>
 </div>
 
 @code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private IReadOnlyList<SchedulerSummary> _schedulers = [];
+    private string? _error;
     private bool _dark;
     private string ThemeAction => _dark ? "Switch to light theme" : "Switch to dark theme";
 
+    protected override async Task OnInitializedAsync()
+    {
+        Context.Changed += OnContextChanged;
+        try
+        {
+            _schedulers = await Queries.GetSchedulersAsync(_lifetime.Token);
+            if (string.IsNullOrWhiteSpace(Context.SchedulerName) && _schedulers.Count > 0)
+                Context.SchedulerName = _schedulers[0].Name;
+        }
+        catch (OperationCanceledException) { }
+        catch (UnauthorizedAccessException) { _error = "This session does not have dashboard access. Sign in through the host application."; }
+        catch (Exception) { _error = "The scheduler list could not be loaded. Refresh the page to try again."; }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
-            return;
-
+        if (!firstRender) return;
         _dark = await JS.InvokeAsync<bool>("quartzSupervisorTheme.isDark");
         StateHasChanged();
     }
 
+    private void SelectScheduler(ChangeEventArgs args)
+    {
+        if (args.Value is string name) Context.SelectScheduler(name);
+    }
+
+    private void OnContextChanged() => _ = InvokeAsync(StateHasChanged);
+
     private async Task ToggleThemeAsync() =>
         _dark = await JS.InvokeAsync<bool>("quartzSupervisorTheme.toggle");
+
+    public void Dispose()
+    {
+        Context.Changed -= OnContextChanged;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
 }

@@ -1,0 +1,71 @@
+@page "/job"
+<PageTitle>@(Create ? "Create job" : Name ?? "Job") · @Context.Title</PageTitle>
+<main class="page" id="main-content" tabindex="-1">
+    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="@Context.Url("jobs")">Jobs</a><span aria-hidden="true"> / </span><span>@(Create ? "Create job" : Name ?? "Details")</span></nav>
+    <header class="page-heading"><div><h1>@(Create ? "Create job" : Name ?? "Job details")</h1><p class="page-description">@(Create ? "Choose an implementation approved by this host." : $"{Group ?? "DEFAULT"} · {Context.SchedulerName}")</p></div>
+        @if (_job is not null && _operate && _job.Summary.TriggerCount > 0) { <button class="button-secondary" disabled="@_acting" @onclick="PauseResumeAsync">@(SchedulesPaused ? "Resume schedules" : "Pause schedules")</button> }
+    </header>
+    @if (_loading) { <p class="text-muted" role="status">Refreshing job…</p> }
+    @if (_error is not null) { <p class="notice notice-error" role="alert">@_error <button class="button-quiet" @onclick="LoadAsync">Refresh</button></p> }
+    @if (_message is not null) { <p class="notice notice-success" role="status">@_message</p> }
+    @if (Create)
+    {
+        @if (!_admin && !_loading) { <p class="notice">Creating jobs requires administrator permission.</p> }
+        else if (_types.Count == 0 && !_loading) { <div class="empty-state"><h2>No approved job types</h2><p>The host must register a job catalog before jobs can be created here. Existing jobs remain available under Jobs.</p></div> }
+        else if (_admin && _types.Count > 0)
+        {
+            <form class="panel panel-content" @onsubmit="CreateAsync" @onsubmit:preventDefault="true">
+                <fieldset disabled="@_acting"><legend>Job configuration</legend><div class="form-grid">
+                    <div class="form-field"><label for="job-type">Approved job type</label><select id="job-type" @bind="_draft.JobTypeKey" @bind:after="TypeChanged" required>@foreach (var type in _types) { <option value="@type.Key">@type.Label</option> }</select></div>
+                    <div class="form-field"><label for="job-name">Name</label><input id="job-name" @bind="_draft.Name" required maxlength="200" /></div>
+                    <div class="form-field"><label for="job-group">Group</label><input id="job-group" @bind="_draft.Group" required maxlength="200" /></div>
+                    <div class="form-field"><label for="job-description">Description</label><textarea id="job-description" @bind="_draft.Description" maxlength="2000"></textarea></div>
+                    <label class="check-field"><input type="checkbox" @bind="_draft.Durable" /> Durable — retain the job without a trigger</label>
+                    <label class="check-field"><input type="checkbox" @bind="_draft.RequestsRecovery" /> Request recovery after scheduler failure</label>
+                    <ParameterFields Schema="CreationSchema" Values="_draft.Parameters" Prefix="create-job" />
+                </div><p class="help-text">Creating a job does not run it. Add a trigger afterward or use Run now. A non-durable job is stored while awaiting its first schedule and is removed when its last trigger is deleted.</p>
+                <div class="form-actions"><button class="button-primary" type="submit">@(_acting ? "Creating…" : "Create job")</button><a class="button-quiet" href="@Context.Url("jobs")">Cancel</a></div></fieldset>
+            </form>
+        }
+    }
+    else if (_job is not null)
+    {
+        <section class="panel panel-content" aria-label="Operational state"><dl class="detail-grid">
+            <div><dt>State</dt><dd><span class="status-badge" data-state="@_job.Summary.State">@_job.Summary.State</span></dd></div><div><dt>Next run</dt><dd>@Time(_job.Summary.NextFireTimeUtc)</dd></div>
+            <div><dt>Running</dt><dd>@_job.Summary.RunningCount</dd></div><div><dt>Last result</dt><dd>@(_job.Summary.LastCompletedUtc is null ? "No recorded result" : _job.Summary.LastRunFailed == true ? "Failed" : "Completed")<span class="sub-cell">@Time(_job.Summary.LastCompletedUtc)</span></dd></div>
+        </dl></section>
+        @if (_operate)
+        {
+            <section class="panel panel-content" id="run-job" aria-labelledby="run-heading"><h2 id="run-heading">Run now</h2><p>Request a one-time execution without changing existing schedules. Quartz may queue it until capacity is available.</p>
+                <form @onsubmit="RunAsync" @onsubmit:preventDefault="true"><fieldset disabled="@_acting"><legend class="sr-only">Run parameters</legend>
+                    <div class="form-grid"><ParameterFields Schema="_job.ParameterSchema" Values="_parameters" Prefix="run-job" AllowStoredValues="true" /></div>
+                    <div class="form-actions"><button class="button-primary" type="submit">@(_acting ? "Working…" : "Run now")</button></div>
+                </fieldset></form>
+            </section>
+        }
+        <section class="panel panel-content" aria-labelledby="job-running-heading"><h2 id="job-running-heading">Running executions</h2>
+            @if (_running.Count == 0) { <p class="text-muted">No running executions reported by this scheduler.</p> }
+            else { <ul class="detail-list">@foreach (var execution in _running) { <li @key="execution.Id"><a class="entity-link" href="@ExecutionUrl(execution)">Started @Time(execution.StartedUtc)</a><span> · @execution.InstanceId</span>@if (execution.Progress is not null) { <span> · @execution.Progress%</span> }<p>@execution.ProgressMessage</p></li> }</ul> }
+        </section>
+        <section class="panel panel-content" aria-labelledby="job-triggers-heading"><div class="panel-header"><h2 id="job-triggers-heading">Schedules</h2>@if (_admin) { <a class="button-secondary" href="@NewTriggerUrl()">Add trigger</a> }</div>
+            @if (_job.Triggers.Any(x => x.State == "Paused") && _job.Triggers.Any(x => x.State != "Paused")) { <p class="notice">Some schedules are paused. Pause schedules applies to every trigger; open an individual trigger to resume only that schedule.</p> }
+            @if (_job.Triggers.Count == 0) { <p class="text-muted">No schedules. This job will only run when requested manually.</p> }
+            else { <div class="table-scroll" tabindex="0" role="region" aria-label="Job schedules"><table><thead><tr><th scope="col">Trigger</th><th scope="col">State</th><th scope="col">Next fire (UTC)</th></tr></thead><tbody>@foreach (var trigger in _job.Triggers) { <tr @key="(trigger.Group, trigger.Name)"><th scope="row"><a class="entity-link" href="@EntityUrl("trigger", trigger.Group, trigger.Name)">@trigger.Name</a><span class="sub-cell">@trigger.Group</span></th><td><span class="status-badge" data-state="@trigger.State">@trigger.State</span></td><td>@Time(trigger.NextFireTimeUtc)</td></tr> }</tbody></table></div> }
+        </section>
+        <section class="panel panel-content" aria-labelledby="job-history-heading"><h2 id="job-history-heading">Native execution history</h2>
+            @if (_history is not null)
+            {
+                <p class="help-text">@_history.Description</p>@if (_history.Message is not null) { <p class="notice">@_history.Message</p> }
+                @if (_history.Available && _history.Page.Items.Count == 0) { <p class="text-muted">No recorded executions on this page.</p> }
+                @if (_history.Page.Items.Count > 0) { <div class="table-scroll" tabindex="0" role="region" aria-label="Job execution history"><table><thead><tr><th scope="col">Started (UTC)</th><th scope="col">Result</th><th scope="col">Completed (UTC)</th><th scope="col">Node</th></tr></thead><tbody>@foreach (var execution in _history.Page.Items) { <tr @key="execution.Id"><th scope="row"><a class="entity-link" href="@ExecutionUrl(execution)">@Time(execution.StartedUtc)</a></th><td>@(execution.IsError ? "Failed" : execution.CompletedUtc is null ? "Running" : "Completed")</td><td>@Time(execution.CompletedUtc)</td><td>@execution.InstanceId</td></tr> }</tbody></table></div> }
+                <nav class="pager" aria-label="Execution history pages">@if (_history.Page.Skip > 0) { <a class="button-secondary" href="@HistoryUrl(Math.Max(0, _history.Page.Skip - _history.Page.PageSize))">Previous results</a> }@if (_history.Page.HasMore) { <a class="button-secondary" href="@HistoryUrl(_history.Page.Skip + _history.Page.PageSize)">More results</a> }</nav>
+            }
+        </section>
+        <details class="panel panel-content"><summary>Configuration</summary><p>@_job.Summary.Description</p><dl class="detail-grid">
+            <div><dt>Implementation</dt><dd class="mono">@_job.JobType</dd></div><div><dt>Durable</dt><dd>@(_job.Summary.Durable ? "Yes" : "No")</dd></div><div><dt>Recovery requested</dt><dd>@(_job.Summary.RequestsRecovery ? "Yes" : "No")</dd></div>
+            <div><dt>Concurrent execution</dt><dd>@(_job.ConcurrentExecutionDisallowed ? "Disallowed" : "Allowed")</dd></div><div><dt>Persist job data after execution</dt><dd>@(_job.PersistJobDataAfterExecution ? "Yes" : "No")</dd></div>
+            @foreach (var parameter in _job.ParameterSchema) { <div><dt>@parameter.Label</dt><dd>@(parameter.Sensitive ? "Sensitive — hidden" : _job.Parameters.GetValueOrDefault(parameter.Name, "Not set"))</dd></div> }
+        </dl><p class="help-text">Only parameters approved by the host are exposed. Job implementation and stored configuration are managed by the host.</p></details>
+        @if (_admin) { <details class="panel panel-content"><summary>Destructive actions</summary><p>Deleting this job also removes all its associated triggers. Running executions are not cancelled.</p><button class="button-danger" disabled="@_acting" @onclick="DeleteAsync">Delete job…</button></details> }
+    }
+</main>

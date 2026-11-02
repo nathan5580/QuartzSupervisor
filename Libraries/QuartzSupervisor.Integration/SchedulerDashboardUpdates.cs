@@ -1,149 +1,146 @@
+using System.Collections.Concurrent;
+using System.Net.Http.Headers;
+using System.Net.ServerSentEvents;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Quartz;
 
 namespace QuartzSupervisor.Integration;
 
-public sealed record DashboardExecution(
-    string Id,
-    string SchedulerName,
-    string JobName,
-    string JobGroup,
-    DateTimeOffset StartedUtc,
-    DateTimeOffset? CompletedUtc,
-    bool IsError)
-{
-    public bool IsManualRun { get; init; }
-}
-
 public interface ISchedulerDashboardUpdates
 {
     event Action<string>? Changed;
-    IReadOnlyList<DashboardExecution> GetRecentExecutions(string? schedulerName = null);
+    DashboardFreshness GetFreshness(string schedulerName);
 }
-
-internal sealed class SchedulerDashboardEvents : ISchedulerDashboardUpdates
+internal sealed class SchedulerDashboardEvents(ILogger<SchedulerDashboardEvents> logger) : ISchedulerDashboardUpdates, IDisposable
 {
-    private const int MaxExecutionsPerScheduler = 100;
-    private readonly object _executionLock = new();
-    private readonly Dictionary<string, List<DashboardExecution>> _executions = new(StringComparer.Ordinal);
-
+    private readonly ConcurrentDictionary<string, byte> _pending = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DashboardFreshness> _freshness = new(StringComparer.Ordinal);
+    private int started;
+    private int draining;
     public event Action<string>? Changed;
-
-    public IReadOnlyList<DashboardExecution> GetRecentExecutions(string? schedulerName = null)
+    public DashboardFreshness GetFreshness(string schedulerName) => _freshness.GetValueOrDefault(schedulerName) ?? new("snapshot", null, "Waiting for scheduler observation.");
+    internal void State(string name, string mode, string? message = null)
     {
-        lock (_executionLock)
-            return schedulerName is null
-                ? _executions.Values.SelectMany(runs => runs).OrderBy(run => run.StartedUtc).ToArray()
-                : _executions.TryGetValue(schedulerName, out var runs) ? runs.ToArray() : [];
+        _freshness.AddOrUpdate(name, new DashboardFreshness(mode, DateTimeOffset.UtcNow, message), (_, old) => old with { Mode = mode, Message = message, LastUpdatedUtc = DateTimeOffset.UtcNow });
+        Notify(name);
     }
-
-    internal void StartExecution(IJobExecutionContext context)
+    internal void Notify(string name)
     {
-        var schedulerName = context.Scheduler.SchedulerName;
-        var jobKey = context.JobDetail.Key;
-        var execution = new DashboardExecution(
-            context.FireInstanceId, schedulerName, jobKey.Name, jobKey.Group, DateTimeOffset.UtcNow, null, false)
+        _pending[name] = 0;
+        if (Interlocked.Exchange(ref started, 1) == 0)
         {
-            IsManualRun = string.Equals(
-                context.Trigger.Key.Group,
-                SchedulerDashboardCommands.ManualRunTriggerGroup,
-                StringComparison.Ordinal)
-        };
-
-        lock (_executionLock)
+            // A single periodic drain bounds fanout regardless of job throughput.
+            drain = new Timer(_ => Drain(), null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
+        }
+    }
+    private Timer? drain;
+    private void Drain()
+    {
+        if (Interlocked.Exchange(ref draining, 1) != 0) return;
+        try
         {
-            if (!_executions.TryGetValue(schedulerName, out var runs))
-                _executions.Add(schedulerName, runs = []);
-            runs.Add(execution);
-            while (runs.Count > MaxExecutionsPerScheduler)
+            foreach (var name in _pending.Keys)
             {
-                var completedIndex = runs.FindIndex(run => run.CompletedUtc is not null);
-                if (completedIndex < 0)
-                    break;
-                runs.RemoveAt(completedIndex);
+                if (!_pending.TryRemove(name, out _)) continue;
+                _freshness.AddOrUpdate(name, new DashboardFreshness("local", DateTimeOffset.UtcNow, null), (_, old) => old with { LastUpdatedUtc = DateTimeOffset.UtcNow });
+                if (Changed is not { } handlers) continue;
+                foreach (Action<string> handler in handlers.GetInvocationList())
+                    try { handler(name); }
+                    catch (Exception ex) { logger.LogWarning("Dashboard subscriber failed ({ErrorType})", ex.GetType().Name); }
             }
         }
-
-        Notify(schedulerName);
+        finally { Volatile.Write(ref draining, 0); }
     }
-
-    internal void CompleteExecution(IJobExecutionContext context, bool isError)
-    {
-        var schedulerName = context.Scheduler.SchedulerName;
-        var jobKey = context.JobDetail.Key;
-        lock (_executionLock)
-        {
-            if (_executions.TryGetValue(schedulerName, out var runs))
-            {
-                var index = runs.FindLastIndex(run => string.Equals(run.Id, context.FireInstanceId, StringComparison.Ordinal));
-                if (index >= 0)
-                {
-                    var execution = runs[index];
-                    runs[index] = execution with
-                    {
-                        CompletedUtc = execution.StartedUtc + context.JobRunTime,
-                        IsError = isError
-                    };
-                }
-            }
-        }
-
-        Notify(schedulerName);
-    }
-
-    internal void Notify(string schedulerName)
-    {
-        if (Changed is not { } handlers)
-            return;
-
-        foreach (Action<string> handler in handlers.GetInvocationList())
-        {
-            try { handler(schedulerName); }
-            catch (Exception) { }
-        }
-    }
+    public void Dispose() => drain?.Dispose();
 }
-
 internal sealed class SchedulerDashboardListenerRegistration(SchedulerDashboardEvents events)
 {
     private readonly HashSet<IScheduler> _attached = [];
-
     public void EnsureAttached(IScheduler scheduler)
     {
         lock (_attached)
         {
-            if (!_attached.Add(scheduler))
-                return;
-
-            var listener = new SchedulerDashboardChangeListener(events);
+            if (!_attached.Add(scheduler)) return;
             IListenerManager manager;
             try { manager = scheduler.ListenerManager; }
-            catch (NotSupportedException) { return; } // Remote schedulers own listeners in their process.
-
+            catch (NotSupportedException) { return; }
+            var listener = new SchedulerDashboardChangeListener(events);
             try
             {
                 manager.AddSchedulerListener(listener);
                 manager.AddJobListener(listener, [Matchers.AllJobs()]);
                 manager.AddTriggerListener(listener, [Matchers.AllTriggers()]);
+                events.State(scheduler.SchedulerName, "local");
             }
-            catch
-            {
-                _attached.Remove(scheduler);
-                throw;
-            }
+            catch { _attached.Remove(scheduler); throw; }
         }
     }
 }
-
-internal sealed class SchedulerDashboardChangeListener(SchedulerDashboardEvents events) :
-    ISchedulerListener, IJobListener, ITriggerListener
+internal sealed class SchedulerDashboardObserver(ISchedulerFactory factory, SchedulerDashboardListenerRegistration listeners,
+    SchedulerDashboardEvents events, IHttpClientFactory clients, IOptions<SchedulerDashboardOptions> options, ILogger<SchedulerDashboardObserver> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var remotes = options.Value.RemoteClients.Select(pair => ObserveRemote(pair.Key, pair.Value, stoppingToken)).ToArray();
+        try
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    foreach (var scheduler in await factory.GetAllSchedulers(stoppingToken).ConfigureAwait(false)) listeners.EnsureAttached(scheduler);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+                catch (Exception ex) { logger.LogWarning("Dashboard scheduler observation failed ({ErrorType}); retrying", ex.GetType().Name); }
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+        finally { await Task.WhenAll(remotes).ConfigureAwait(false); }
+    }
+    private async Task ObserveRemote(string name, string clientName, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                using var client = clients.CreateClient(clientName);
+                using var request = new HttpRequestMessage(HttpMethod.Get, $"schedulers/{Uri.EscapeDataString(name)}/events");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentType?.MediaType != "text/event-stream") throw new NotSupportedException("Target does not serve SSE.");
+                events.State(name, "remote"); // Also invalidates after reconnect: native history reconciles events missed in the gap.
+                await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                await foreach (var item in SseParser.Create(stream).EnumerateAsync(ct).ConfigureAwait(false))
+                    events.Notify(name);
+                events.State(name, "snapshot", "Remote event stream disconnected; periodic snapshot refresh is active.");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex) when (ex is HttpRequestException or NotSupportedException or IOException or OperationCanceledException)
+            {
+                events.State(name, "snapshot", "Remote event stream unavailable; periodic snapshot refresh is active.");
+                logger.LogWarning("Dashboard remote event stream for {Scheduler} unavailable ({ErrorType})", name, ex.GetType().Name);
+            }
+            try { await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            events.Notify(name);
+        }
+    }
+}
+internal sealed class SchedulerDashboardChangeListener(SchedulerDashboardEvents events) : ISchedulerListener, IJobListener, ITriggerListener
 {
     public string Name => nameof(SchedulerDashboardChangeListener);
-
     public ValueTask JobScheduled(IScheduler scheduler, ITrigger trigger, CancellationToken ct) => Notify(scheduler);
     public ValueTask JobUnscheduled(IScheduler scheduler, TriggerKey triggerKey, CancellationToken ct) => Notify(scheduler);
     public ValueTask TriggerFinalized(IScheduler scheduler, ITrigger trigger, CancellationToken ct) => Notify(scheduler);
     public ValueTask SchedulerError(IScheduler scheduler, SchedulerErrorContext errorContext, CancellationToken ct) => Notify(scheduler);
     public ValueTask TriggerInError(IScheduler scheduler, TriggerKey triggerKey, CancellationToken ct) => Notify(scheduler);
+    public ValueTask TriggersInError(IScheduler scheduler, JobKey jobKey, CancellationToken ct) => Notify(scheduler);
+    public ValueTask JobInterrupted(IScheduler scheduler, JobKey jobKey, CancellationToken ct) => Notify(scheduler);
+    public ValueTask JobInterrupted(IScheduler scheduler, JobKey jobKey, string fireInstanceId, CancellationToken ct) => Notify(scheduler);
     public ValueTask TriggerPaused(IScheduler scheduler, TriggerKey triggerKey, CancellationToken ct) => Notify(scheduler);
     public ValueTask TriggersPaused(IScheduler scheduler, string? triggerGroup, CancellationToken ct) => Notify(scheduler);
     public ValueTask TriggerResumed(IScheduler scheduler, TriggerKey triggerKey, CancellationToken ct) => Notify(scheduler);
@@ -159,26 +156,13 @@ internal sealed class SchedulerDashboardChangeListener(SchedulerDashboardEvents 
     public ValueTask SchedulerShuttingDown(IScheduler scheduler, CancellationToken ct) => Notify(scheduler);
     public ValueTask SchedulerShutdown(IScheduler scheduler, CancellationToken ct) => Notify(scheduler);
     public ValueTask SchedulingDataCleared(IScheduler scheduler, CancellationToken ct) => Notify(scheduler);
-
-    public ValueTask JobToBeExecuted(IJobExecutionContext context, CancellationToken ct)
-    {
-        events.StartExecution(context);
-        return ValueTask.CompletedTask;
-    }
-
-    public ValueTask JobWasExecuted(IJobExecutionContext context, JobExecutionException? jobException, CancellationToken ct)
-    {
-        events.CompleteExecution(context, jobException is not null);
-        return ValueTask.CompletedTask;
-    }
-
+    public ValueTask JobToBeExecuted(IJobExecutionContext context, CancellationToken ct) => Notify(context.Scheduler);
+    public ValueTask JobWasExecuted(IJobExecutionContext context, JobExecutionException? jobException, CancellationToken ct) => Notify(context.Scheduler);
+    public ValueTask JobExecutionVetoed(IJobExecutionContext context, CancellationToken ct) => Notify(context.Scheduler);
+    public ValueTask TriggerMisfired(ITrigger trigger, IScheduler scheduler, CancellationToken ct) => Notify(scheduler);
+    public ValueTask TriggerSkipped(ITrigger trigger, IScheduler scheduler, CancellationToken ct) => Notify(scheduler);
+    public ValueTask TriggerRetriesExhausted(ITrigger trigger, IJobExecutionContext context, JobExecutionException jobException, CancellationToken ct) => Notify(context.Scheduler);
     public ValueTask TriggerFired(ITrigger trigger, IJobExecutionContext context, CancellationToken ct) => Notify(context.Scheduler);
     public ValueTask TriggerComplete(ITrigger trigger, IJobExecutionContext context, SchedulerInstruction instruction, CancellationToken ct) => Notify(context.Scheduler);
-
-    private ValueTask Notify(IScheduler scheduler)
-    {
-        events.Notify(scheduler.SchedulerName);
-        return ValueTask.CompletedTask;
-    }
+    private ValueTask Notify(IScheduler scheduler) { events.Notify(scheduler.SchedulerName); return ValueTask.CompletedTask; }
 }
-

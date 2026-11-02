@@ -1,136 +1,58 @@
-@page "/quartz-supervisor/jobs"
-<PageTitle>Jobs · Quartz Supervisor</PageTitle>
-
+@page "/jobs"
+<PageTitle>Jobs · @Context.Title</PageTitle>
 <main class="page" id="main-content" tabindex="-1">
-    <header class="page-heading">
-        <div>
-            <h1>Jobs</h1>
-            <p class="page-description">Live, searchable view of jobs registered with Quartz.</p>
-        </div>
+    <header class="page-heading"><div><h1>Jobs</h1><p class="page-description">Run work, inspect results, and manage schedules on @Context.SchedulerName.</p></div>
+        @if (_admin) { <a class="button-primary" href="@Context.Url("job", query: new Dictionary<string, string?> { ["create"] = "true" })">Create job</a> }
     </header>
-
-    @if (_loading)
+    <form class="toolbar" @onsubmit="SearchJobs" @onsubmit:preventDefault="true">
+        <div class="form-field"><label for="jobs-search">Search</label><input id="jobs-search" type="search" @bind="_search" placeholder="Job name" /></div>
+        <div class="form-field"><label for="jobs-group">Group</label><input id="jobs-group" @bind="_group" placeholder="All groups" /></div>
+        <div class="form-field"><label for="jobs-state">State</label><select id="jobs-state" @bind="_state"><option value="">All states</option>@foreach (var state in new[] { "Normal", "Paused", "Running", "Error", "Unscheduled", "Complete", "Blocked" }) { <option>@state</option> }</select></div>
+        <button class="button-secondary" type="submit">Apply filters</button>
+        <a class="button-quiet" href="@Context.Url("jobs")">Clear</a>
+    </form>
+    @if (_loading) { <p role="status" class="text-muted">Refreshing jobs…</p> }
+    @if (_error is not null) { <p class="notice notice-error" role="alert">@_error <button class="button-quiet" @onclick="LoadAsync">Retry</button></p> }
+    @if (_message is not null) { <p class="notice notice-success" role="status">@_message</p> }
+    @if (_selected.Count > 0)
     {
-        <p class="state-panel" role="status"><span class="loading-dot"></span>Loading jobs…</p>
-    }
-    else if (_error is not null)
-    {
-        <p class="notice" role="alert">@_error</p>
-    }
-    else if (_schedulers.Count == 0)
-    {
-        <p class="notice">No schedulers are registered with this host.</p>
-    }
-    else
-    {
-        <section class="filter-panel" aria-label="Job filters">
-            <div class="filter-field">
-                <label for="jobs-scheduler">Scheduler</label>
-                <select id="jobs-scheduler" class="field" @bind="_selectedName" @bind:after="LoadJobsAsync">
-                    @foreach (var scheduler in _schedulers) { <option value="@scheduler.Name">@(scheduler.Status == "Unavailable" ? $"{scheduler.Name} (Unavailable)" : scheduler.Name)</option> }
-                </select>
-            </div>
-            <form class="search-form" @onsubmit="SearchJobsAsync" @onsubmit:preventDefault="true">
-                <label for="job-search">Search job names</label>
-                <div class="search-row">
-                    <input id="job-search" class="field" type="search" @bind="_filter" @bind:event="oninput" placeholder="Job name" />
-                    <button class="button-primary" type="submit">Search</button>
-                </div>
-            </form>
-        </section>
-        @if (_actionMessage is not null)
-        {
-            <p class="notice notice-success" role="status">@_actionMessage</p>
-        }
-        @if (_actionError is not null)
-        {
-            <p class="notice" role="alert">@_actionError</p>
-        }
-        <section class="table-panel" aria-labelledby="jobs-table-heading">
-            <div class="panel-header table-panel-header">
-                <div>
-                    <h2 id="jobs-table-heading">Registered jobs</h2>
-                    <p class="panel-description">Jobs on @_selectedName</p>
-                </div>
-            </div>
-            @if (_page.Items.Count == 0)
-            {
-                <div class="empty-state">
-                    <h3>@(!string.IsNullOrWhiteSpace(_filter) ? "No matching jobs" : _page.Skip > 0 ? "No jobs on this page" : "No jobs registered")</h3>
-                    <p>@(!string.IsNullOrWhiteSpace(_filter) ? "Try another job name." : "Jobs registered with this scheduler will appear here.")</p>
-                </div>
-            }
-            else
-            {
-                <div class="table-scroll desktop-table"><table>
-                    <caption class="sr-only">Jobs for @_selectedName</caption>
-                    <thead><tr><th scope="col">Actions</th><th scope="col">Name</th><th scope="col">Group</th><th scope="col">Description</th><th scope="col">Durable</th><th scope="col">Recovery</th></tr></thead>
-                    <tbody>@foreach (var job in _page.Items)
-                    {
-                        <tr>
-                            <td><div class="row-actions">
-                                <button class="button-secondary button-icon" type="button" @onclick="() => TriggerJobAsync(job)" aria-label="@($"Run {job.Group}.{job.Name} now")" title="Run now" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                                </button>
-                                <button class="button-secondary button-icon" type="button" @onclick="() => PauseJobAsync(job)" aria-label="@($"Pause {job.Group}.{job.Name}")" title="Pause" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM15 5h3v14h-3z" /></svg>
-                                </button>
-                                <button class="button-secondary button-icon" type="button" @onclick="() => ResumeJobAsync(job)" aria-label="@($"Resume {job.Group}.{job.Name}")" title="Resume" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 7.8 9.8M20 4v6h-6" /><path d="M11 8v8l6-4z" /></svg>
-                                </button>
-                                <button class="button-danger button-icon" type="button" @onclick="() => DeleteJobAsync(job)" aria-label="@($"Delete {job.Group}.{job.Name}")" title="Delete" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 3v7m4-7v7" /></svg>
-                                </button>
-                            </div></td>
-                            <th scope="row"><span class="entity-name">@job.Name</span></th>
-                            <td><span class="group-tag">@job.Group</span></td>
-                            <td class="description-cell">@(job.Description ?? "—")</td>
-                            <td><span class="boolean-tag">@YesNo(job.Durable)</span></td>
-                            <td><span class="boolean-tag">@YesNo(job.RequestsRecovery)</span></td>
-                        </tr>
-                    }</tbody>
-                </table></div>
-                <div class="mobile-records" role="list" aria-label="Jobs for @_selectedName">
-                    @foreach (var job in _page.Items)
-                    {
-                        <article class="mobile-record" role="listitem">
-                            <header class="mobile-record-heading">
-                                <h3>@job.Name</h3>
-                                <span class="group-tag">Group · @job.Group</span>
-                            </header>
-                            <p class="mobile-description">@(job.Description ?? "No description")</p>
-                            <dl class="mobile-facts">
-                                <div><dt>Durable</dt><dd>@YesNo(job.Durable)</dd></div>
-                                <div><dt>Recovery</dt><dd>@YesNo(job.RequestsRecovery)</dd></div>
-                            </dl>
-                            <div class="row-actions">
-                                <button class="button-secondary button-icon" type="button" @onclick="() => TriggerJobAsync(job)" aria-label="@($"Run {job.Group}.{job.Name} now")" title="Run now" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                                </button>
-                                <button class="button-secondary button-icon" type="button" @onclick="() => PauseJobAsync(job)" aria-label="@($"Pause {job.Group}.{job.Name}")" title="Pause" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zM15 5h3v14h-3z" /></svg>
-                                </button>
-                                <button class="button-secondary button-icon" type="button" @onclick="() => ResumeJobAsync(job)" aria-label="@($"Resume {job.Group}.{job.Name}")" title="Resume" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 7.8 9.8M20 4v6h-6" /><path d="M11 8v8l6-4z" /></svg>
-                                </button>
-                                <button class="button-danger button-icon" type="button" @onclick="() => DeleteJobAsync(job)" aria-label="@($"Delete {job.Group}.{job.Name}")" title="Delete" disabled="@_acting">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 3v7m4-7v7" /></svg>
-                                </button>
-                            </div>
-                        </article>
-                    }
-                </div>
-            }
-            @if (_page.Skip > 0 || _page.HasMore)
-            {
-                <nav class="pager" aria-label="Job pages">
-                    <span>Page @PageNumber</span>
-                    <div class="pager-actions">
-                        <button class="button-secondary" type="button" @onclick="PreviousPageAsync" disabled="@(_page.Skip == 0)">Previous</button>
-                        <button class="button-secondary" type="button" @onclick="NextPageAsync" disabled="@(!_page.HasMore)">Next <span aria-hidden="true">→</span></button>
-                    </div>
-                </nav>
-            }
+        var selectedRows = _page.Items.Where(x => _selected.Contains(new(x.Group, x.Name))).ToArray();
+        <section class="selection-bar" aria-label="Selected jobs"><strong>@_selected.Count selected (up to 100)</strong>
+            @if (_operate && selectedRows.Any(x => x.State != "Paused")) { <button class="button-secondary" disabled="@_acting" @onclick='() => BulkAsync("pause")'>Pause selected</button> }
+            @if (_operate && selectedRows.Any(x => x.State == "Paused")) { <button class="button-secondary" disabled="@_acting" @onclick='() => BulkAsync("resume")'>Resume selected</button> }
+            @if (selectedRows.Any(x => x.State == "Paused") && selectedRows.Any(x => x.State != "Paused")) { <span class="help-text">Mixed states: each action applies to the full selection.</span> }
+            @if (_admin) { <button class="button-danger" disabled="@_acting" @onclick='() => BulkAsync("delete")'>Delete selected…</button> }
+            <button class="button-quiet" @onclick="() => _selected.Clear()">Clear selection</button>
         </section>
     }
+    @if (_outcomes.Any(x => !x.Succeeded))
+    {
+        <div class="notice notice-error" role="alert"><strong>Some jobs were not changed</strong><ul>@foreach (var result in _outcomes.Where(x => !x.Succeeded)) { <li>@result.Group / @result.Name: @result.Error</li> }</ul><p>Successful actions were retained. Retry only the remaining selection.</p></div>
+    }
+    <section class="table-panel" aria-label="Registered jobs" aria-busy="@((_loading || _acting) ? "true" : "false")">
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Job table"><table class="record-table" role="table">
+            <caption class="sr-only">Jobs for @Context.SchedulerName. Times shown in UTC.</caption>
+            <thead><tr>@if (_operate || _admin) { <th scope="col"><label class="checkbox-target"><input type="checkbox" aria-label="Select up to 100 jobs on this page" checked="@(_page.Items.Count > 0 && _selected.Count == Math.Min(100, _page.Items.Count))" @onchange="SelectAll" /></label></th> }<th scope="col">Job</th><th scope="col">State</th><th scope="col">Next run</th><th scope="col">Last result</th><th scope="col">Actions</th></tr></thead>
+            <tbody>@foreach (var job in _page.Items)
+            {
+                <tr @key="(job.Group, job.Name)">
+                    @if (_operate || _admin) { <td class="record-select"><label class="checkbox-target"><input type="checkbox" aria-label="@($"Select {job.Group} / {job.Name}")" checked="@_selected.Contains(new(job.Group, job.Name))" disabled="@(_selected.Count >= 100 && !_selected.Contains(new(job.Group, job.Name)))" @onchange="e => Select(job, e)" /></label></td> }
+                    <th scope="row"><a class="entity-link" href="@JobUrl(job)">@job.Name</a><span class="sub-cell">@job.Group · @job.TriggerCount schedule(s)</span>@if (!string.IsNullOrEmpty(job.Description)) { <span class="sub-cell">@job.Description</span> }</th>
+                    <td data-label="State"><span><span class="status-badge" data-state="@job.State">@job.State</span>@if (job.RunningCount > 0) { <span class="sub-cell">@job.RunningCount running</span> }</span></td>
+                    <td class="time-cell" data-label="Next run">@Time(job.NextFireTimeUtc)</td>
+                    <td data-label="Last result"><span>@(job.LastCompletedUtc is null ? "No recorded result" : job.LastRunFailed == true ? "Failed" : "Completed")<span class="sub-cell">@Time(job.LastCompletedUtc)</span></span></td>
+                    <td class="record-actions"><div class="row-actions">
+                        @if (_operate) { <button class="button-secondary" disabled="@_acting" @onclick="() => RunAsync(job)" aria-label="@($"Run {job.Name} now")">Run now</button> }
+                        <details class="action-menu"><summary>More<span class="sr-only"> actions for @job.Name</span></summary><div class="row-actions">
+                            <a class="button-quiet" href="@JobUrl(job)">Details</a>
+                            @if (_operate && job.TriggerCount > 0) { <button class="button-secondary" disabled="@_acting" @onclick='() => BulkAsync(job.State == "Paused" ? "resume" : "pause", job)'>@(job.State == "Paused" ? "Resume" : "Pause")</button> }
+                            @if (_admin) { <button class="button-danger" disabled="@_acting" @onclick='() => BulkAsync("delete", job)'>Delete…</button> }
+                        </div></details>
+                    </div></td>
+                </tr>
+            }</tbody>
+        </table></div>
+        @if (!_loading && _page.Items.Count == 0) { <div class="empty-state"><h2>No jobs found</h2><p>Adjust the filters, select a scheduler, or create a host-approved job.</p></div> }
+        <nav class="pager" aria-label="Job pages"><span>Page @(_page.Skip / Math.Max(1, _page.PageSize) + 1)</span><div class="pager-actions">@if (_page.Skip > 0) { <a class="button-secondary" href="@PageUrl(Math.Max(0, _page.Skip - _page.PageSize))">Previous</a> }@if (_page.HasMore) { <a class="button-secondary" href="@PageUrl(_page.Skip + _page.PageSize)">Next</a> }</div></nav>
+    </section>
 </main>

@@ -1,0 +1,34 @@
+@page "/execution"
+<PageTitle>Execution · @Context.Title</PageTitle>
+<main class="page" id="main-content" tabindex="-1">
+    <nav class="breadcrumb" aria-label="Breadcrumb"><a href="@Context.Url("timeline", _scheduler)">Timeline</a><span aria-hidden="true"> / </span><span>Execution</span></nav>
+    <header class="page-heading"><div><h1>Execution details</h1><p class="page-description">Run state, timing, progress, and diagnostics.</p></div></header>
+    @if (_error is not null) { <p class="notice notice-error" role="alert">@_error <button class="button-quiet" @onclick="LoadAsync">Retry</button></p> }
+    @if (_message is not null) { <p class="notice" role="status">@_message</p> }
+    @if (_loading) { <p role="status">Loading execution…</p> }
+    else if (_run is null && _error is null) { <div class="empty-state"><h2>Execution not available</h2><p>This execution may no longer be running, may have expired from native history, or may belong to another node. @_details?.Capabilities.HistoryDescription</p></div> }
+    @if (_run is not null)
+    {
+        <section class="panel"><div class="panel-header"><h2>@_run.JobGroup / @_run.JobName</h2><span class="status-badge" data-state="@(_run.CompletedUtc is null ? "Running" : _run.IsError ? "Failed" : "Completed")">@(_run.CompletedUtc is null ? "Running" : _run.IsError ? "Failed" : "Completed")</span></div>
+            <div class="panel-content">
+            <dl class="detail-grid"><div><dt>Job</dt><dd><a href="@EntityUrl("job", _run.JobGroup, _run.JobName)">@_run.JobGroup / @_run.JobName</a></dd></div><div><dt>Trigger</dt><dd>@if (!string.IsNullOrEmpty(_run.TriggerName)) { <a href="@EntityUrl("trigger", _run.TriggerGroup, _run.TriggerName)">@_run.TriggerGroup / @_run.TriggerName</a> } else { <span>Not reported</span> }</dd></div><div><dt>Invocation</dt><dd>@(_run.IsManualRun ? "Manual run" : "Scheduled / native execution")</dd></div><div><dt>Scheduler / node</dt><dd>@_scheduler / @_run.InstanceId</dd></div><div><dt>Scheduled</dt><dd>@Time(_run.ScheduledUtc)</dd></div><div><dt>Started</dt><dd>@Time(_run.StartedUtc)</dd></div><div><dt>Completed</dt><dd>@(_run.CompletedUtc is null ? "Not completed in this snapshot" : Time(_run.CompletedUtc))</dd></div><div><dt>Duration</dt><dd>@(_run.CompletedUtc is { } completed ? (completed - _run.StartedUtc).ToString(@"d\.hh\:mm\:ss\.fff") : "Still running; no final duration")</dd></div><div><dt>Native entry</dt><dd class="mono">@(_run.EntryId ?? "Not assigned")</dd></div><div><dt>Progress</dt><dd>@(_run.Progress is { } progress ? $"{progress}%" : "Not reported") @_run.ProgressMessage</dd></div></dl>
+            <p class="help-text">Snapshot @Time(_captured) · @Updates.GetFreshness(_scheduler).Mode</p>
+            @if (Updates.GetFreshness(_scheduler).Message is { } freshnessMessage) { <p class="notice">@freshnessMessage</p> }
+            @if (_run.CompletedUtc is null)
+            {
+                <p class="help-text">Cancellation is cooperative and node-local. A request does not force termination, roll back changes, or prove that a job stopped.</p>
+                @if (CanCancel) { <button class="button-danger" @onclick="CancelAsync" disabled="@_acting">Request cancellation</button> }
+                else if (!_requested) { <p class="notice">Cancellation is unavailable for this account, or this execution is not identified as running on the connected scheduler node.</p> }
+            }
+            </div>
+        </section>
+        @if (!string.IsNullOrWhiteSpace(_run.ErrorMessage) || !string.IsNullOrWhiteSpace(_run.Log))
+        {
+            <section class="panel panel-content"><h2>Diagnostics</h2>
+                @if (!string.IsNullOrWhiteSpace(_run.ErrorMessage)) { <h3>Error</h3><pre class="error-detail">@_run.ErrorMessage</pre> }
+                @if (!string.IsNullOrWhiteSpace(_run.Log)) { <h3>Execution log</h3><pre class="error-detail">@_run.Log</pre> }
+            </section>
+        }
+        else { <p class="help-text">No execution diagnostics were supplied. The host controls which safe messages are exposed.</p> }
+    }
+</main>

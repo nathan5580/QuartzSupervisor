@@ -1,3 +1,17 @@
+@using Microsoft.Extensions.DependencyInjection
+@implements IDisposable
+@inject QuartzSupervisor.Dashboard.Services.DashboardContext Dashboard
+@inject NavigationManager Navigation
+@inject IServiceProvider Services
+
+@if (!RendererInfo.IsInteractive && Services.GetService<IRoutingStateProvider>()?.RouteData is { } staticRoute)
+{
+    @* Endpoint routing has already selected the page. Its grouped URL includes the mount
+       prefix, unlike the component's route template used by the interactive Router. *@
+    <RouteView RouteData="staticRoute" DefaultLayout="typeof(DashboardLayout)" />
+}
+else
+{
 <Router AppAssembly="typeof(DashboardApp).Assembly">
     <Found Context="routeData">
         <RouteView RouteData="routeData" DefaultLayout="typeof(DashboardLayout)" />
@@ -5,7 +19,19 @@
     </Found>
     <NotFound>
         <LayoutView Layout="typeof(DashboardLayout)">
-            <main><h1>Page not found</h1><p><a href="/quartz-supervisor">Return to overview</a></p></main>
+            <main><h1>Page not found</h1><p><a href="@Dashboard.Url()">Return to overview</a></p></main>
         </LayoutView>
     </NotFound>
 </Router>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Dashboard.SynchronizeSelection();
+        Navigation.LocationChanged += LocationChanged;
+    }
+
+    private void LocationChanged(object? sender, LocationChangedEventArgs args) => Dashboard.SynchronizeSelection();
+    public void Dispose() => Navigation.LocationChanged -= LocationChanged;
+}
