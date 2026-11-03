@@ -9,14 +9,25 @@
     else if (_overview is null && _error is null) { <div class="empty-state"><h2>No scheduler connected</h2><p>No schedulers are available to your account.</p></div> }
     @if (_overview is not null && _details is not null)
     {
-        <section class="panel" aria-labelledby="health-heading">
-            <div class="panel-header"><div><h2 id="health-heading">@_scheduler</h2><span class="status-badge" data-state="@_overview.Scheduler.Status">@_overview.Scheduler.Status</span></div>
+        <section class="panel overview-health" aria-labelledby="health-heading">
+            <div class="panel-header"><div class="overview-health-title"><div><h2 id="health-heading">@_scheduler</h2><span class="status-badge" data-state="@_overview.Scheduler.Status">@_overview.Scheduler.Status</span></div>
                 @if (_details.Capabilities.CanOperate && _overview.Scheduler.Status is "Running" or "Standby" or "Created")
                 { <button class="button-primary" disabled="@_acting" @onclick="ChangeStatusAsync">@(_overview.Scheduler.Status == "Running" ? "Standby scheduler" : "Start scheduler")</button> }
             </div>
-            <p class="help-text">@_details.InstanceId · @Updates.GetFreshness(_scheduler).Mode · Updated @Time(_captured)</p>
+</div>
+            <p class="help-text overview-health-meta"><span>@_details.InstanceId</span><span>@Updates.GetFreshness(_scheduler).Mode</span><span>Updated @Time(_captured)</span></p>
             @if (Updates.GetFreshness(_scheduler).Message is { } freshnessMessage) { <p class="notice">@freshnessMessage</p> }
-            <div class="metric-strip"><a class="metric" href="@Context.Url("jobs", _scheduler)"><strong>@_overview.JobCount</strong> jobs</a><a class="metric" href="@Context.Url("triggers", _scheduler)"><strong>@_overview.TriggerCount</strong> triggers</a><a class="metric" href="@Context.Url("timeline", _scheduler)"><strong>@_running.Count</strong> running in this snapshot</a></div>
+            <div class="metric-strip"><a class="metric" href="@Context.Url("jobs", _scheduler)"><span class="metric-label">Jobs</span><strong>@_overview.JobCount</strong><span class="metric-link-hint">Browse jobs</span></a><a class="metric" href="@Context.Url("triggers", _scheduler)"><span class="metric-label">Triggers</span><strong>@_overview.TriggerCount</strong><span class="metric-link-hint">Browse triggers</span></a><a class="metric" href="@Context.Url("timeline", _scheduler)"><span class="metric-label">Running now</span><strong>@_running.Count</strong><span class="metric-link-hint">Open execution timeline</span></a></div>
+        </section>
+        <section class="table-panel" aria-labelledby="failures-heading"><div class="panel-header"><h2 id="failures-heading">Recent failures</h2><span>Last 24 hours · retained native history</span></div>
+            @if (_failures?.Message is { } historyMessage) { <p class="notice">@historyMessage</p> }
+            @if (_failures?.Available != true) { <p class="empty-state">Execution history is unavailable. No conclusion about recent failures can be drawn.</p> }
+            else if (_failures.Page.Items.Count == 0) { <p class="empty-state">No failures found in the available history for this period.</p> }
+            else { <div class="table-scroll"><table class="record-table" role="table"><caption class="sr-only">Recent failed executions</caption><thead><tr><th scope="col">Job</th><th scope="col">Started</th><th scope="col">Outcome</th></tr></thead><tbody>
+                @foreach (var run in _failures.Page.Items) { <tr @key="run.Id"><th scope="row">@run.JobGroup / @run.JobName</th><td data-label="Started">@Time(run.StartedUtc)</td><td data-label="Outcome"><span class="status-badge" data-state="Failed">Failed</span> <a class="button-quiet" href="@RunUrl(run)">Inspect execution</a></td></tr> }
+            </tbody></table></div>
+                @if (_failures.Page.HasMore) { <p class="help-text">Only the first page is shown. Open the timeline to inspect a narrower period.</p> }
+            }
         </section>
         <section class="table-panel" aria-labelledby="running-heading"><div class="panel-header"><h2 id="running-heading">Running now</h2><a href="@Context.Url("timeline", _scheduler)">Open timeline</a></div>
             @if (_running.Count == 0) { <p class="empty-state">No running executions reported in this scheduler's observable scope.</p> }
@@ -24,20 +35,10 @@
                 @foreach (var run in _running) { <tr @key="run.Id"><th scope="row"><a class="entity-link" href="@RunUrl(run)">@run.JobGroup / @run.JobName</a></th><td data-label="Started">@Time(run.StartedUtc)</td><td data-label="Node">@run.InstanceId</td><td data-label="Progress">@(run.Progress is { } progress ? $"{progress}%" : "Not reported") @run.ProgressMessage</td></tr> }
             </tbody></table></div> }
         </section>
-        <section class="table-panel" aria-labelledby="failures-heading"><div class="panel-header"><h2 id="failures-heading">Recent failures</h2><span>Last 24 hours · retained native history</span></div>
-            @if (_failures?.Message is { } historyMessage) { <p class="notice">@historyMessage</p> }
-            @if (_failures?.Available != true) { <p class="empty-state">Execution history is unavailable. No conclusion about recent failures can be drawn.</p> }
-            else if (_failures.Page.Items.Count == 0) { <p class="empty-state">No failures found in the available history for this period.</p> }
-            else { <div class="table-scroll"><table class="record-table" role="table"><caption class="sr-only">Recent failed executions</caption><thead><tr><th scope="col">Job</th><th scope="col">Started</th><th scope="col">Outcome</th></tr></thead><tbody>
-                @foreach (var run in _failures.Page.Items) { <tr @key="run.Id"><th scope="row"><a class="entity-link" href="@RunUrl(run)">@run.JobGroup / @run.JobName</a></th><td data-label="Started">@Time(run.StartedUtc)</td><td data-label="Outcome"><span class="status-badge" data-state="Failed">Failed</span></td></tr> }
-            </tbody></table></div>
-                @if (_failures.Page.HasMore) { <p class="help-text">Only the first page is shown. Open the timeline to inspect a narrower period.</p> }
-            }
-        </section>
         <section class="table-panel" aria-labelledby="upcoming-heading"><div class="panel-header"><h2 id="upcoming-heading">Upcoming work</h2><span>@_overview.UpcomingTriggers.Count next fire times</span></div><p class="help-text">Quartz next-fire times are scheduling estimates, not guaranteed executions. Check each trigger's state.</p>
             @if (_overview.UpcomingTriggers.Count == 0) { <p class="empty-state">No upcoming fire times reported.</p> }
             else { <div class="table-scroll"><table class="record-table" role="table"><caption class="sr-only">Upcoming trigger firings</caption><thead><tr><th scope="col">Trigger</th><th scope="col">Job</th><th scope="col">State</th><th scope="col">Next fire</th></tr></thead><tbody>
-                @foreach (var trigger in _overview.UpcomingTriggers) { <tr @key="(trigger.Group, trigger.Name)"><th scope="row"><a class="entity-link" href="@EntityUrl("trigger", trigger.Group, trigger.Name)">@trigger.Group / @trigger.Name</a></th><td data-label="Job"><a href="@EntityUrl("job", trigger.JobGroup, trigger.JobName)">@trigger.JobName</a></td><td data-label="State"><span class="status-badge" data-state="@trigger.State">@trigger.State</span></td><td data-label="Next fire">@Time(trigger.NextFireTimeUtc)</td></tr> }
+                @foreach (var trigger in _overview.UpcomingTriggers) { <tr @key="(trigger.Group, trigger.Name)"><th scope="row"><a class="entity-link" href="@EntityUrl("trigger", trigger.Group, trigger.Name)">@trigger.Group / @trigger.Name</a></th><td data-label="Job"><a class="entity-link" href="@EntityUrl("job", trigger.JobGroup, trigger.JobName)">@trigger.JobName</a></td><td data-label="State"><span class="status-badge" data-state="@trigger.State">@trigger.State</span></td><td data-label="Next fire">@Time(trigger.NextFireTimeUtc)</td></tr> }
             </tbody></table></div> }
         </section>
     }

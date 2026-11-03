@@ -19,7 +19,7 @@
             @if (_operate && !_trigger.Summary.IsManualRun)
             {
                 <div class="row-actions">
-                    @if (_trigger.Summary.State is "Normal" or "Executing" or "Blocked" or "Paused") { <button class="button-secondary" disabled="@_acting" @onclick="PauseResumeAsync">@(_trigger.Summary.State == "Paused" ? "Resume" : "Pause")</button> }
+                    @if (_trigger.Summary.State is "Normal" or "Executing" or "Blocked" or "Paused") { <button class="button-secondary" disabled="@_acting" @onclick="PauseResumeAsync">@(_trigger.Summary.State == "Paused" ? "Resume trigger" : "Pause trigger")</button> }
                     @if (_trigger.Summary.State == "Error") { <p class="help-text">Inspect the job's last failure before resetting. Resetting makes this trigger eligible for scheduling again.</p><button class="button-secondary" disabled="@_acting" @onclick="ResetAsync">Reset error state</button> }
                 </div>
             }
@@ -81,7 +81,7 @@
             {
                 <p class="help-text">@_history.Description</p>@if (_history.Message is not null) { <p class="notice">@_history.Message</p> }
                 @if (_history.Available && _history.Page.Items.Count == 0) { <p class="text-muted">No recorded executions for this trigger on this page.</p> }
-                @if (_history.Page.Items.Count > 0) { <div class="table-scroll" tabindex="0" role="region" aria-label="Trigger execution history"><table><thead><tr><th scope="col">Started (UTC)</th><th scope="col">Result</th><th scope="col">Completed (UTC)</th><th scope="col">Node</th></tr></thead><tbody>@foreach (var execution in _history.Page.Items) { <tr @key="execution.Id"><th scope="row"><a class="entity-link" href="@ExecutionUrl(execution)">@Time(execution.StartedUtc)</a></th><td>@(execution.IsError ? "Failed" : execution.CompletedUtc is null ? "Running" : "Completed")</td><td>@Time(execution.CompletedUtc)</td><td>@execution.InstanceId</td></tr> }</tbody></table></div> }
+                @if (_history.Page.Items.Count > 0) { <div class="table-scroll" tabindex="0" role="region" aria-label="Trigger execution history"><table class="record-table"><thead><tr><th scope="col">Started (UTC)</th><th scope="col">Result</th><th scope="col">Completed (UTC)</th><th scope="col">Node</th></tr></thead><tbody>@foreach (var execution in _history.Page.Items) { <tr @key="execution.Id"><th scope="row" data-label="Started (UTC)"><a class="entity-link" href="@ExecutionUrl(execution)">@Time(execution.StartedUtc)</a></th><td data-label="Result">@(execution.IsError ? "Failed" : execution.CompletedUtc is null ? "Running" : "Completed")</td><td data-label="Completed">@Time(execution.CompletedUtc)</td><td data-label="Node">@execution.InstanceId</td></tr> }</tbody></table></div> }
                 <nav class="pager" aria-label="Trigger history pages">@if (_history.Page.Skip > 0) { <a class="button-secondary" href="@HistoryUrl(Math.Max(0, _history.Page.Skip - _history.Page.PageSize))">Previous results</a> }@if (_history.Page.HasMore) { <a class="button-secondary" href="@HistoryUrl(_history.Page.Skip + _history.Page.PageSize)">More results</a> }</nav>
             }
         </section>

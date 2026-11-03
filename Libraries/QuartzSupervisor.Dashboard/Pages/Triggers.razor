@@ -1,7 +1,7 @@
 @page "/triggers"
 <PageTitle>Triggers · @Context.Title</PageTitle>
 <main class="page" id="main-content" tabindex="-1">
-    <header class="page-heading"><div><h1>Triggers</h1><p class="page-description">Schedules, next fire times, and operational state on @Context.SchedulerName.</p></div>
+    <header class="page-heading"><div><h1>Triggers</h1><p class="page-description">A trigger schedules when its job runs; the job defines the work. View next fire times and operational state on @Context.SchedulerName.</p></div>
         @if (_admin) { <a class="button-primary" href="@Context.Url("trigger", query: new Dictionary<string, string?> { ["create"] = "true" })">Create trigger</a> }
     </header>
     <form class="toolbar" @onsubmit="SearchTriggers" @onsubmit:preventDefault="true">

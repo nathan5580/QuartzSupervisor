@@ -1,7 +1,7 @@
 @page "/jobs"
 <PageTitle>Jobs · @Context.Title</PageTitle>
 <main class="page" id="main-content" tabindex="-1">
-    <header class="page-heading"><div><h1>Jobs</h1><p class="page-description">Run work, inspect results, and manage schedules on @Context.SchedulerName.</p></div>
+    <header class="page-heading"><div><h1>Jobs</h1><p class="page-description">A job defines the work; a trigger schedules when it runs. Run jobs, inspect results, and manage schedules on @Context.SchedulerName.</p></div>
         @if (_admin) { <a class="button-primary" href="@Context.Url("job", query: new Dictionary<string, string?> { ["create"] = "true" })">Create job</a> }
     </header>
     <form class="toolbar" @onsubmit="SearchJobs" @onsubmit:preventDefault="true">

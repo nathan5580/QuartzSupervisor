@@ -48,10 +48,20 @@ function updateDataSet(set, values) {
     if (values.length) set.update(values);
 }
 
-function itemData(item) {
+export function normalizeTimelineItem(item, minimumVisibleRangeMs) {
+    const durationMs = item.type === "range" ? new Date(item.end).getTime() - new Date(item.start).getTime() : Infinity;
+    return {
+        ...item,
+        type: item.type === "range" && durationMs < minimumVisibleRangeMs ? "point" : item.type,
+        subgroup: item.type === "point" ? "forecast" : "runs"
+    };
+}
+
+function itemData(item, minimumVisibleRangeMs) {
+    const normalized = normalizeTimelineItem(item, minimumVisibleRangeMs);
     const title = document.createElement("span");
     title.textContent = item.title;
-    return { ...item, subgroup: item.type === "point" ? "forecast" : "runs", title };
+    return { ...normalized, title };
 }
 
 function restartClock(state) {
@@ -126,8 +136,10 @@ export async function render(element, data, callback) {
     state.following = data.follow;
     state.visible = data.visible;
     state.groups.get().forEach(group => { if (group.nestedGroups) state.expanded.set(group.id, group.showNested); });
+    const visibleRange = new Date(data.end).getTime() - new Date(data.start).getTime();
+    const minimumVisibleRangeMs = visibleRange * 10 / Math.max(element.clientWidth, 1);
     updateDataSet(state.groups, data.groups.map((group, order) => ({ ...group, order, subgroupStack: { runs: true, forecast: false }, ...(group.nestedGroups ? { showNested: state.expanded.get(group.id) ?? false } : {}) })));
-    updateDataSet(state.items, data.items.map(itemData));
+    updateDataSet(state.items, data.items.map(item => itemData(item, minimumVisibleRangeMs)));
     if (state.zone !== data.zone) {
         state.zone = data.zone;
         state.timeline.setOptions({ moment: date => data.zone === "utc" ? vis.moment(date).utc() : vis.moment(date) });

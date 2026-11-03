@@ -168,6 +168,42 @@ public sealed class SchedulerDashboardQueriesTests : IAsyncLifetime
         await _commands.ResumeTriggerAsync(_scheduler.SchedulerName, triggerKey.Group, triggerKey.Name, _ct);
         Assert.Equal(TriggerState.Normal, await _scheduler.GetTriggerState(triggerKey, _ct));
     }
+    [Fact]
+    public async Task Bulk_trigger_actions_deduplicate_keys_and_report_missing_deletes()
+    {
+        var first = new DashboardKey("triggers", "trigger-00");
+        var second = new DashboardKey("triggers", "trigger-01");
+        var missing = new DashboardKey("triggers", "missing");
+
+        var paused = await _commands.BulkTriggersAsync(_scheduler.SchedulerName, [first, missing, first, second], "pause", _ct);
+
+        Assert.Equal(
+            [new BulkResult(first.Group, first.Name, true, null), new BulkResult(missing.Group, missing.Name, true, null), new BulkResult(second.Group, second.Name, true, null)],
+            paused);
+        Assert.Equal(TriggerState.Paused, await _scheduler.GetTriggerState(new TriggerKey(first.Name, first.Group), _ct));
+        Assert.Equal(TriggerState.Paused, await _scheduler.GetTriggerState(new TriggerKey(second.Name, second.Group), _ct));
+
+        var deleted = await _commands.BulkTriggersAsync(_scheduler.SchedulerName, [first, missing, first], "delete", _ct);
+
+        Assert.Equal(
+            [new BulkResult(first.Group, first.Name, true, null), new BulkResult(missing.Group, missing.Name, false, "No matching object remains.")],
+            deleted);
+        Assert.Null(await _scheduler.GetTrigger(new TriggerKey(first.Name, first.Group), _ct));
+        Assert.NotNull(await _scheduler.GetTrigger(new TriggerKey(second.Name, second.Group), _ct));
+    }
+
+    [Fact]
+    public async Task Bulk_trigger_validation_precedes_every_mutation()
+    {
+        var first = new TriggerKey("trigger-00", "triggers");
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _commands.BulkTriggersAsync(_scheduler.SchedulerName,
+            [new DashboardKey(first.Group, first.Name), new DashboardKey("triggers", " ")], "delete", _ct));
+
+        Assert.NotNull(await _scheduler.GetTrigger(first, _ct));
+        Assert.Equal(TriggerState.Normal, await _scheduler.GetTriggerState(first, _ct));
+    }
+
 
     [Fact]
     public async Task Trigger_now_publishes_running_and_completed_execution_durations()

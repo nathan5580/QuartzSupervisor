@@ -31,7 +31,7 @@
         <section class="panel" aria-labelledby="timeline-heading"><div class="panel-header"><h2 id="timeline-heading">@_scheduler</h2><span>@_data.Executions.Count actual · @_data.Scheduled.Count planned</span></div>
             <p class="help-text">@Updates.GetFreshness(_scheduler).Mode · Updated @Time(_data.CapturedUtc)</p>
             @if (_data.Truncated || _inventoryTruncated) { <p class="notice">This view reached a data limit. Narrow the time range or filter.</p> }
-            <div class="timeline-legend" aria-label="Timeline legend"><span class="status-badge" data-state="Running">Running</span><span class="status-badge" data-state="Completed">Completed</span><span class="status-badge" data-state="Failed">Failed</span><span>Dashed bar: manual run</span><span>Point: scheduled</span></div>
+            <div class="timeline-legend" aria-label="Timeline legend"><span class="status-badge" data-state="Running">Running</span><span class="status-badge" data-state="Completed">Completed</span><span class="status-badge" data-state="Failed">Failed</span><span>Dashed bar: manual run</span><span>Point: scheduled</span>@if (_view == "chart") { <span>Short runs are points; inspect the run for exact duration.</span> }</div>
             @if (_chartError is not null) { <p class="notice notice-error" role="alert">The chart could not load. Use the accessible list below.</p> }
             <div class="execution-chart-scroll" hidden="@(_view != "chart" || _chartError is not null)" role="region" aria-label="Execution timeline. Use the accessible list for keyboard navigation." tabindex="0"><div class="execution-chart" @ref="_container"></div></div>
             <div hidden="@(_view != "list" && _chartError is null)" class="table-scroll">
